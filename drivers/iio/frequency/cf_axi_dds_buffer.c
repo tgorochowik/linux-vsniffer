@@ -1,7 +1,7 @@
 /*
  * DDS PCORE/COREFPGA Module
  *
- * Copyright 2012-2013 Analog Devices Inc.
+ * Copyright 2012-2014 Analog Devices Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -100,7 +100,6 @@ static int dds_buffer_state_set(struct iio_dev *indio_dev, bool state)
 {
 	struct dds_buffer *dds_buffer = iio_buffer_to_dds_buffer(indio_dev->buffer);
 	struct cf_axi_dds_state *st = iio_priv(indio_dev);
-	unsigned tmp_reg;
 
 #if 0
 	tmp_reg = dds_read(st, CF_AXI_DDS_DMA_STAT);
@@ -109,28 +108,21 @@ static int dds_buffer_state_set(struct iio_dev *indio_dev, bool state)
 			 (tmp_reg & CF_AXI_DDS_DMA_STAT_OVF) ? "overflow" : "",
 			 (tmp_reg & CF_AXI_DDS_DMA_STAT_OVF) ? "underflow" : "");
 #endif
-	tmp_reg = dds_read(st, ADI_REG_CNTRL_2);
-	tmp_reg &= ~ADI_DATA_SEL(~0);
 
-	if (!state) {
-//		cf_axi_dds_stop(st);
-		tmp_reg |= DATA_SEL_DDS;
-		dds_write(st, ADI_REG_CNTRL_2, tmp_reg);
-		return 0;
-	}
+	if (!state)
+		return cf_axi_dds_datasel(st, -1, DATA_SEL_DDS);
 
-	tmp_reg |= DATA_SEL_DMA;
-
-	dds_write(st, ADI_REG_CNTRL_1, 0);
+	cf_axi_dds_stop(st);
 	st->enable = false;
 
 	if (!st->has_fifo_interface)
 		dds_write(st, ADI_REG_VDMA_FRMCNT, dds_buffer->length);
 
-	dds_write(st, ADI_REG_CNTRL_2, tmp_reg);
+	cf_axi_dds_datasel(st, -1, DATA_SEL_DMA);
 	dds_write(st, ADI_REG_VDMA_STATUS, ADI_VDMA_OVF | ADI_VDMA_UNF);
-	dds_write(st, ADI_REG_CNTRL_1, ADI_ENABLE);
+
 	st->enable = true;
+	cf_axi_dds_start_sync(st, 1);
 
 	return 0;
 }
@@ -161,13 +153,6 @@ static int dds_buffer_write(struct iio_buffer *buf, size_t count,
 	return ret < 0 ? ret : count;
 }
 
-static int dds_buffer_get_length(struct iio_buffer *buf)
-{
-	struct dds_buffer *dds_buffer = iio_buffer_to_dds_buffer(buf);
-
-	return dds_buffer->length;
-}
-
 static int dds_buffer_set_length(struct iio_buffer *buf, int length)
 {
 	struct dds_buffer *dds_buffer = iio_buffer_to_dds_buffer(buf);
@@ -177,25 +162,6 @@ static int dds_buffer_set_length(struct iio_buffer *buf, int length)
 	return 0;
 }
 
-static int dds_buffer_get_bytes_per_datum(struct iio_buffer *buf)
-{
-	return buf->bytes_per_datum;
-}
-
-static IIO_BUFFER_ENABLE_ATTR;
-static IIO_BUFFER_LENGTH_ATTR;
-
-static struct attribute *dds_buffer_attributes[] = {
-	&dev_attr_length.attr,
-	&dev_attr_enable.attr,
-	NULL,
-};
-
-static struct attribute_group dds_buffer_attrs = {
-	.attrs = dds_buffer_attributes,
-	.name = "buffer",
-};
-
 static void dds_buffer_release(struct iio_buffer *buf)
 {
 	struct dds_buffer *dds_buffer = iio_buffer_to_dds_buffer(buf);
@@ -204,9 +170,7 @@ static void dds_buffer_release(struct iio_buffer *buf)
 
 static const struct iio_buffer_access_funcs dds_buffer_access_funcs = {
 	.write = &dds_buffer_write,
-	.get_length = &dds_buffer_get_length,
 	.set_length = &dds_buffer_set_length,
-	.get_bytes_per_datum = &dds_buffer_get_bytes_per_datum,
 	.enable = dds_buffer_enable,
 	.disable = dds_buffer_disable,
 	.release = dds_buffer_release,
@@ -241,7 +205,6 @@ int cf_axi_dds_configure_buffer(struct iio_dev *indio_dev)
 	if (!dds_buffer)
 		return -ENOMEM;
 
-	dds_buffer->iio_buffer.attrs = &dds_buffer_attrs;
 	dds_buffer->iio_buffer.access = &dds_buffer_access_funcs;
 	iio_buffer_init(&dds_buffer->iio_buffer);
 	dds_buffer->indio_dev = indio_dev;

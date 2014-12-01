@@ -54,21 +54,29 @@ int iio_dmaengine_buffer_submit_block(struct iio_dma_buffer_block *block,
 	if (block->block.bytes_used > max_size)
 		block->block.bytes_used = max_size;
 
-	block->block.bytes_used = round_down(block->block.bytes_used,
+	block->block.bytes_used = rounddown(block->block.bytes_used,
 			dmaengine_buffer->align);
+
+	if (block->block.flags & IIO_BUFFER_BLOCK_FLAG_CYCLIC) {
+		desc = dmaengine_prep_dma_cyclic(dmaengine_buffer->chan,
+			block->phys_addr, block->block.bytes_used,
+			block->block.bytes_used, direction, 0);
+		if (!desc)
+			return -ENOMEM;
+	} else {
+		desc = dmaengine_prep_slave_single(dmaengine_buffer->chan,
+			block->phys_addr, block->block.bytes_used, direction,
+			DMA_PREP_INTERRUPT);
+		if (!desc)
+			return -ENOMEM;
+
+		desc->callback = dmaengine_buffer_block_done;
+		desc->callback_param = block;
+	}
 
 	spin_lock_irq(&dmaengine_buffer->queue.list_lock);
 	list_add_tail(&block->head, &dmaengine_buffer->active);
 	spin_unlock_irq(&dmaengine_buffer->queue.list_lock);
-
-	desc = dmaengine_prep_slave_single(dmaengine_buffer->chan,
-		block->phys_addr, block->block.bytes_used, direction,
-		DMA_PREP_INTERRUPT);
-	if (!desc)
-		return -ENOMEM;
-
-	desc->callback = dmaengine_buffer_block_done;
-	desc->callback_param = block;
 
 	cookie = dmaengine_submit(desc);
 	if (cookie < 0)
@@ -114,9 +122,7 @@ static void dmaengine_buffer_release(struct iio_buffer *buf)
 static const struct iio_buffer_access_funcs dmaengine_buffer_ops = {
 	.read = iio_dma_buffer_read,
 	.write = iio_dma_buffer_write,
-	.get_bytes_per_datum = iio_dma_buffer_get_bytes_per_datum,
 	.set_bytes_per_datum = iio_dma_buffer_set_bytes_per_datum,
-	.get_length = iio_dma_buffer_get_length,
 	.set_length = iio_dma_buffer_set_length,
 	.enable = iio_dma_buffer_enable,
 	.disable = dmaengine_buffer_disable,
@@ -138,7 +144,6 @@ struct iio_buffer *iio_dmaengine_buffer_alloc(struct device *dev,
 	struct dmaengine_buffer *dmaengine_buffer;
 	struct dma_slave_caps caps;
 	unsigned int width, src_width, dest_width;
-	unsigned int i;
 	int ret;
 
 	dmaengine_buffer = kzalloc(sizeof(*dmaengine_buffer), GFP_KERNEL);
@@ -166,6 +171,13 @@ struct iio_buffer *iio_dmaengine_buffer_alloc(struct device *dev,
 	} else {
 		width = 1;
 	}
+
+	if (!width) { /* FIXME */
+		pr_warn("%s:%d width %d (DMA width >= 256-bits ?)\n",
+			__func__,__LINE__, width);
+		width = 32;
+	}
+
 	dmaengine_buffer->align = width;
 
 	INIT_LIST_HEAD(&dmaengine_buffer->active);

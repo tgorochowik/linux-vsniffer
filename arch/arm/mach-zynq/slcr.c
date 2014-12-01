@@ -29,12 +29,15 @@
 #define SLCR_FPGA_RST_CTRL_OFFSET	0x240 /* FPGA Software Reset Control */
 #define SLCR_A9_CPU_RST_CTRL_OFFSET	0x244 /* CPU Software Reset Control */
 #define SLCR_REBOOT_STATUS_OFFSET	0x258 /* PS Reboot Status */
+#define SLCR_PSS_IDCODE			0x530 /* PS IDCODE */
 #define SLCR_LVL_SHFTR_EN_OFFSET	0x900 /* Level Shifters Enable */
 #define SLCR_OCM_CFG_OFFSET		0x910 /* OCM Address Mapping */
 
 #define SLCR_UNLOCK_MAGIC		0xDF0D
 #define SLCR_A9_CPU_CLKSTOP		0x10
 #define SLCR_A9_CPU_RST			0x1
+#define SLCR_PSS_IDCODE_DEVICE_SHIFT	12
+#define SLCR_PSS_IDCODE_DEVICE_MASK	0x1F
 
 void __iomem *zynq_slcr_base;
 static struct regmap *zynq_slcr_regmap;
@@ -85,6 +88,22 @@ static inline int zynq_slcr_unlock(void)
 	zynq_slcr_write(SLCR_UNLOCK_MAGIC, SLCR_UNLOCK_OFFSET);
 
 	return 0;
+}
+
+/**
+ * zynq_slcr_get_device_id - Read device code id
+ *
+ * Return:	Device code id
+ */
+u32 zynq_slcr_get_device_id(void)
+{
+	u32 val;
+
+	zynq_slcr_read(&val, SLCR_PSS_IDCODE);
+	val >>= SLCR_PSS_IDCODE_DEVICE_SHIFT;
+	val &= SLCR_PSS_IDCODE_DEVICE_MASK;
+
+	return val;
 }
 
 /**
@@ -166,6 +185,8 @@ void zynq_slcr_cpu_start(int cpu)
 	zynq_slcr_write(reg, SLCR_A9_CPU_RST_CTRL_OFFSET);
 	reg &= ~(SLCR_A9_CPU_CLKSTOP << cpu);
 	zynq_slcr_write(reg, SLCR_A9_CPU_RST_CTRL_OFFSET);
+
+	zynq_slcr_cpu_state_write(cpu, false);
 }
 
 /**
@@ -182,8 +203,47 @@ void zynq_slcr_cpu_stop(int cpu)
 }
 
 /**
- * zynq_slcr_init - Regular slcr driver init
+ * zynq_slcr_cpu_state - Read/write cpu state
+ * @cpu:	cpu number
  *
+ * SLCR_REBOOT_STATUS save upper 2 bits (31/30 cpu states for cpu0 and cpu1)
+ * 0 means cpu is running, 1 cpu is going to die.
+ *
+ * Return: true if cpu is running, false if cpu is going to die
+ */
+bool zynq_slcr_cpu_state_read(int cpu)
+{
+	u32 state;
+
+	state = readl(zynq_slcr_base + SLCR_REBOOT_STATUS_OFFSET);
+	state &= 1 << (31 - cpu);
+
+	return !state;
+}
+
+/**
+ * zynq_slcr_cpu_state - Read/write cpu state
+ * @cpu:	cpu number
+ * @die:	cpu state - true if cpu is going to die
+ *
+ * SLCR_REBOOT_STATUS save upper 2 bits (31/30 cpu states for cpu0 and cpu1)
+ * 0 means cpu is running, 1 cpu is going to die.
+ */
+void zynq_slcr_cpu_state_write(int cpu, bool die)
+{
+	u32 state, mask;
+
+	state = readl(zynq_slcr_base + SLCR_REBOOT_STATUS_OFFSET);
+	mask = 1 << (31 - cpu);
+	if (die)
+		state |= mask;
+	else
+		state &= ~mask;
+	writel(state, zynq_slcr_base + SLCR_REBOOT_STATUS_OFFSET);
+}
+
+/**
+ * zynq_slcr_init - Regular slcr driver init
  * Return:	0 on success, negative errno otherwise.
  *
  * Called early during boot from platform code to remap SLCR area.

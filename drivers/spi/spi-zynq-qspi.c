@@ -121,12 +121,13 @@
  * @refclk:		Pointer to the peripheral clock
  * @pclk:		Pointer to the APB clock
  * @irq:		IRQ number
- * @config_reg_lock:	Lock used for accessing configuration register
  * @txbuf:		Pointer to the TX buffer
  * @rxbuf:		Pointer to the RX buffer
  * @bytes_to_transfer:	Number of bytes left to transfer
  * @bytes_to_receive:	Number of bytes left to receive
  * @is_dual:		Flag to indicate whether dual flash memories are used
+ * @is_instr:		Flag to indicate if transfer contains an instruction
+ *			(Used in dual parallel configuration)
  */
 struct zynq_qspi {
 	void __iomem *regs;
@@ -233,12 +234,25 @@ static void zynq_qspi_init_hw(struct zynq_qspi *xqspi)
  * @xqspi:	Pointer to the zynq_qspi structure
  * @data:	The 32 bit variable where data is stored
  * @size:	Number of bytes to be copied from data to RX buffer
+ *
+ * Note: In case of dual parallel connection, even number of bytes are read
+ * when odd bytes are requested to avoid transfer of a nibble to each flash.
+ * The receive buffer though, is populated with the number of bytes requested.
  */
 static void zynq_qspi_copy_read_data(struct zynq_qspi *xqspi, u32 data, u8 size)
 {
 	if (xqspi->rxbuf) {
-		memcpy(xqspi->rxbuf, ((u8 *) &data) + 4 - size, size);
-		xqspi->rxbuf += size;
+		if (!xqspi->is_dual || xqspi->is_instr) {
+			memcpy(xqspi->rxbuf, ((u8 *) &data) + 4 - size, size);
+			xqspi->rxbuf += size;
+		} else {
+			u8 buff[4], len;
+			len = size;
+			size = size % 2 ? size + 1 : size;
+			memcpy(buff, ((u8 *) &data) + 4 - size, size);
+			memcpy(xqspi->rxbuf, buff, len);
+			xqspi->rxbuf += len;
+		}
 	}
 	xqspi->bytes_to_receive -= size;
 	if (xqspi->bytes_to_receive < 0)
@@ -444,15 +458,15 @@ static void zynq_qspi_fill_tx_fifo(struct zynq_qspi *xqspi, u32 size)
 /**
  * zynq_qspi_tx_dual_parallel - Handles odd byte tx for dual parallel
  *
- * In dual parallel configuration, when read/write data operations
- * are performed, odd data bytes have to be converted to even to
- * avoid a nibble of data to be written going to individual flash devices,
- * where a byte is expected.
- * This check is only for data and will not apply for commands.
- *
  * @xqspi:	Pointer to the zynq_qspi structure
  * @data:	Data to be transmitted
  * @len:	No. of bytes to be transmitted
+ *
+ * In dual parallel configuration, when read/write data operations
+ * are performed, odd data bytes have to be converted to even to
+ * avoid a nibble (of data when programming / dummy when reading)
+ * going to individual flash devices, where a byte is expected.
+ * This check is only for data and will not apply for commands.
  */
 static inline void zynq_qspi_tx_dual_parallel(struct zynq_qspi *xqspi,
 					      u32 data, u32 len)
@@ -463,26 +477,6 @@ static inline void zynq_qspi_tx_dual_parallel(struct zynq_qspi *xqspi,
 	else
 		zynq_qspi_write(xqspi, ZYNQ_QSPI_TXD_00_01_OFFSET +
 				((len - 1) * 4), data);
-}
-
-/**
- * zynq_qspi_rx_dual_parallel - Handles odd byte rx for dual parallel
- *
- * In dual parallel configuration, when read/write data operations
- * are performed, odd data bytes have to be converted to even to
- * avoid a dummy nibble for read going to individual flash devices.
- * This check is only for data and will not apply for commands or
- * the dummy cycles transmitted for fast/quad read.
- *
- * @xqspi:	Pointer to the zynq_qspi structure
- * @data:	Data word received
- * @len:	No. of bytes to be read
- */
-static inline void zynq_qspi_rx_dual_parallel(struct zynq_qspi *xqspi,
-					      u32 data, u32 len)
-{
-	len = len % 2 ? len + 1 : len;
-	zynq_qspi_copy_read_data(xqspi, data, len);
 }
 
 /**
@@ -536,13 +530,8 @@ static irqreturn_t zynq_qspi_irq(int irq, void *dev_id)
 			} else {
 				data = zynq_qspi_read(xqspi,
 						      ZYNQ_QSPI_RXD_OFFSET);
-				if (!xqspi->is_dual || xqspi->is_instr)
-					zynq_qspi_copy_read_data(xqspi, data,
+				zynq_qspi_copy_read_data(xqspi, data,
 						xqspi->bytes_to_receive);
-				else {
-					zynq_qspi_rx_dual_parallel(xqspi, data,
-						xqspi->bytes_to_receive);
-				}
 			}
 			rxindex++;
 		}
@@ -552,7 +541,7 @@ static irqreturn_t zynq_qspi_irq(int irq, void *dev_id)
 				/* There is more data to send */
 				zynq_qspi_fill_tx_fifo(xqspi,
 						       ZYNQ_QSPI_RX_THRESHOLD);
-			} else {
+			} else if (intr_status & ZYNQ_QSPI_IXR_TXNFULL_MASK) {
 				int tmp;
 				tmp = xqspi->bytes_to_transfer;
 				zynq_qspi_copy_write_data(xqspi, &data,
@@ -587,6 +576,8 @@ static irqreturn_t zynq_qspi_irq(int irq, void *dev_id)
 
 /**
  * zynq_qspi_start_transfer - Initiates the QSPI transfer
+ * @master:	Pointer to the spi_master structure which provides
+ *		information about the controller.
  * @qspi:	Pointer to the spi_device structure
  * @transfer:	Pointer to the spi_transfer structure which provide information
  *		about next transfer parameters
@@ -826,7 +817,7 @@ static int zynq_qspi_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static struct of_device_id zynq_qspi_of_match[] = {
+static const struct of_device_id zynq_qspi_of_match[] = {
 	{ .compatible = "xlnx,zynq-qspi-1.0", },
 	{ /* end of table */ }
 };
@@ -840,7 +831,6 @@ static struct platform_driver zynq_qspi_driver = {
 	.remove = zynq_qspi_remove,
 	.driver = {
 		.name = DRIVER_NAME,
-		.owner = THIS_MODULE,
 		.of_match_table = zynq_qspi_of_match,
 		.pm = &zynq_qspi_dev_pm_ops,
 	},

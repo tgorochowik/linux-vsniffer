@@ -19,9 +19,12 @@
 #define ADI_REG_SCRATCH		0x0008			 	/*Version and Scratch Registers */
 #define ADI_SCRATCH(x)		(((x) & 0xffffffff) << 0)	/* RW, Scratch register. */
 
+#define PCORE_VERSION(major, minor, letter) ((major << 16) | (minor << 8) | letter)
+#define PCORE_VERSION_MAJOR(version) (version >> 16)
+#define PCORE_VERSION_MINOR(version) ((version >> 8) & 0xff)
+#define PCORE_VERSION_LETTER(version) (version & 0xff)
 
 /* ADC COMMON */
-
 
 #define ADI_REG_RSTN			0x0040
 #define ADI_RSTN				(1 << 0)
@@ -97,13 +100,13 @@
 /* ADC CHANNEL */
 
 #define ADI_REG_CHAN_CNTRL(c)		(0x0400 + (c) * 0x40)
-#define ADI_PN_SEL			(1 << 10)
+#define ADI_PN_SEL			(1 << 10) /* !v8.0 */
 #define ADI_IQCOR_ENB			(1 << 9)
 #define ADI_DCFILT_ENB			(1 << 8)
 #define ADI_FORMAT_SIGNEXT		(1 << 6)
 #define ADI_FORMAT_TYPE			(1 << 5)
 #define ADI_FORMAT_ENABLE		(1 << 4)
-#define ADI_PN23_TYPE			(1 << 1)
+#define ADI_PN23_TYPE			(1 << 1) /* !v8.0 */
 #define ADI_ENABLE			(1 << 0)
 
 #define ADI_REG_CHAN_STATUS(c)		(0x0404 + (c) * 0x40)
@@ -122,6 +125,29 @@
 #define ADI_TO_IQCOR_COEFF_1(x)		(((x) >> 16) & 0xFFFF)
 #define ADI_IQCOR_COEFF_2(x)		(((x) & 0xFFFF) << 0)
 #define ADI_TO_IQCOR_COEFF_2(x)		(((x) >> 0) & 0xFFFF)
+
+#define ADI_REG_CHAN_CNTRL_3(c)		(0x0418 + (c) * 0x40) /* v8.0 */
+#define ADI_ADC_PN_SEL(x)		(((x) & 0xF) << 16)
+#define ADI_TO_ADC_PN_SEL(x)		(((x) >> 16) & 0xF)
+#define ADI_ADC_DATA_SEL(x)		(((x) & 0xF) << 0)
+#define ADI_TO_ADC_DATA_SEL(x)		(((x) >> 0) & 0xF)
+
+enum adc_pn_sel {
+	ADC_PN9 = 0,
+	ADC_PN23A = 1,
+	ADC_PN7 = 4,
+	ADC_PN15 = 5,
+	ADC_PN23 = 6,
+	ADC_PN31 = 7,
+	ADC_PN_CUSTOM = 9,
+	ADC_PN_END = 10,
+};
+
+enum adc_data_sel {
+	ADC_DATA_SEL_NORM,
+	ADC_DATA_SEL_LB, /* DAC loopback */
+	ADC_DATA_SEL_RAMP, /* TBD */
+};
 
 #define ADI_REG_CHAN_USR_CNTRL_1(c)		(0x0420 + (c) * 0x40)
 #define ADI_USR_DATATYPE_BE			(1 << 25)
@@ -249,38 +275,70 @@
 #define AD9434_DEF_OUTPUT_MODE		0x00
 #define AD9434_REG_VREF_MASK		0xC0
 
+/*
+ * Analog Devices AD9680
+ */
+
+#define AD9680_REG_CHIP_ID_LOW		0x004
+#define AD9680_REG_CHIP_ID_HIGH		0x005
+#define AD9680_REG_DEVICE_INDEX		0x008
+#define AD9680_REG_INPUT_FS_RANGE	0x025
+
+#define AD9680_REG_OUTPUT_MODE		0x561
+#define AD9680_REG_TEST_MODE		0x550
+
+#define CHIPID_AD9680			0xC5
+#define AD9680_DEF_OUTPUT_MODE		0x00
+#define AD9680_REG_VREF_MASK		0x0F
+
+/*
+ * Analog Devices AD9652
+ */
+
+#define CHIPID_AD9652			0xC1
+#define AD9652_REG_VREF_MASK		0xC0
+
+/*
+ * Analog Devices AD9234
+ */
+
+#define CHIPID_AD9234			0xCE
 
 /* debugfs direct register access */
 #define DEBUGFS_DRA_PCORE_REG_MAGIC	0x80000000
 
 #include <linux/spi/spi.h>
 
-#define AXIADC_MAX_PCORE_TSIZE		(524288)
-
 enum {
 	ID_AD9467,
 	ID_AD9643,
 	ID_AD9250,
 	ID_AD9265,
+	ID_AD9680,
 	ID_AD9683,
 	ID_AD9625,
 	ID_AD9434,
+	ID_AD9652,
+	ID_AD9234,
 };
 
 struct axiadc_chip_info {
 	char				*name;
 	unsigned			num_channels;
+	unsigned 		num_shadow_slave_channels;
+	const unsigned long 	*scan_masks;
 	int			(*scale_table)[2];
 	int				num_scales;
 	int				max_testmode;
 	unsigned long			max_rate;
-	struct iio_chan_spec		channel[4];
+	struct iio_chan_spec		channel[8];
 };
 
 struct axiadc_state {
 	struct device 			*dev_spi;
 	struct iio_info			iio_info;
 	void __iomem			*regs;
+	void __iomem			*slave_regs;
 	unsigned				max_usr_channel;
 	unsigned			adc_def_output_mode;
 	unsigned			max_count;
@@ -291,16 +349,16 @@ struct axiadc_state {
 	unsigned char		testmode[2];
 	unsigned long 		adc_clk;
 	bool				streaming_dma;
+	unsigned			have_slave_channels;
 
 	struct iio_chan_spec	channels[16];
 };
 
-struct ad9361_rf_phy;
-
 struct axiadc_converter {
 	struct spi_device 	*spi;
 	struct clk 		*clk;
-	struct ad9361_rf_phy *phy;
+	void 			*phy;
+	struct gpio_desc		*pwrdown_gpio;
 	unsigned			id;
 	unsigned			adc_output_mode;
 	unsigned 		testmode[2];
@@ -362,6 +420,20 @@ static inline unsigned int axiadc_read(struct axiadc_state *st, unsigned reg)
 {
 	return ioread32(st->regs + reg);
 }
+
+static inline void axiadc_slave_write(struct axiadc_state *st, unsigned reg, unsigned val)
+{
+	iowrite32(val, st->slave_regs + reg);
+}
+
+static inline unsigned int axiadc_slave_read(struct axiadc_state *st, unsigned reg)
+{
+	return ioread32(st->slave_regs + reg);
+}
+
+int axiadc_set_pnsel(struct axiadc_state *st, int channel, enum adc_pn_sel sel);
+enum adc_pn_sel axiadc_get_pnsel(struct axiadc_state *st,
+			       int channel, const char **name);
 
 int axiadc_configure_ring(struct iio_dev *indio_dev, const char *dma_name);
 void axiadc_unconfigure_ring(struct iio_dev *indio_dev);

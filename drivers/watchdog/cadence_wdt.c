@@ -503,7 +503,7 @@ static int __maybe_unused cdns_wdt_resume(struct device *dev)
 
 static SIMPLE_DEV_PM_OPS(cdns_wdt_pm_ops, cdns_wdt_suspend, cdns_wdt_resume);
 
-static struct of_device_id cdns_wdt_of_match[] = {
+static const struct of_device_id cdns_wdt_of_match[] = {
 	{ .compatible = "xlnx,zynq-wdt-r1p2", },
 	{ .compatible = "cdns,wdt-r1p2", },
 	{ /* end of table */ }
@@ -517,7 +517,6 @@ static struct platform_driver cdns_wdt_driver = {
 	.shutdown	= cdns_wdt_shutdown,
 	.driver		= {
 		.name	= "cdns-wdt",
-		.owner	= THIS_MODULE,
 		.of_match_table = cdns_wdt_of_match,
 		.pm	= &cdns_wdt_pm_ops,
 	},

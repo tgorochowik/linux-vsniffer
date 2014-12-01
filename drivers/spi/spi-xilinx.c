@@ -14,7 +14,6 @@
  */
 
 #include <linux/module.h>
-#include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
@@ -88,10 +87,10 @@ struct xilinx_spi {
 	const u8 *tx_ptr;	/* pointer in the Rx buffer */
 	int remaining_bytes;	/* the number of bytes left to transfer */
 	u8 bits_per_word;
-	unsigned int (*read_fn) (void __iomem *);
-	void (*write_fn) (u32, void __iomem *);
-	void (*tx_fn) (struct xilinx_spi *);
-	void (*rx_fn) (struct xilinx_spi *);
+	unsigned int (*read_fn)(void __iomem *);
+	void (*write_fn)(u32, void __iomem *);
+	void (*tx_fn)(struct xilinx_spi *);
+	void (*rx_fn)(struct xilinx_spi *);
 };
 
 static void xspi_write32(u32 val, void __iomem *addr)
@@ -339,8 +338,15 @@ static int xilinx_spi_probe(struct platform_device *pdev)
 		num_cs = pdata->num_chipselect;
 		bits_per_word = pdata->bits_per_word;
 	} else {
-		of_property_read_u32(pdev->dev.of_node, "xlnx,num-ss-bits",
-					  &num_cs);
+		if (of_property_read_u32(pdev->dev.of_node, "num-cs",
+					 &num_cs)) {
+			if (!of_property_read_u32(pdev->dev.of_node,
+						  "xlnx,num-ss-bits",
+						  &num_cs)) {
+			      dev_err(&pdev->dev,
+				      "property name 'xlnx,num-ss-bits' is deprecated.\n");
+			}
+		}
 	}
 
 	if (!num_cs) {
@@ -370,7 +376,7 @@ static int xilinx_spi_probe(struct platform_device *pdev)
 		goto put_master;
 	}
 
-	master->bus_num = pdev->dev.id;
+	master->bus_num = pdev->id;
 	master->num_chipselect = num_cs;
 	master->dev.of_node = pdev->dev.of_node;
 
@@ -472,7 +478,6 @@ static struct platform_driver xilinx_spi_driver = {
 	.remove = xilinx_spi_remove,
 	.driver = {
 		.name = XILINX_SPI_NAME,
-		.owner = THIS_MODULE,
 		.of_match_table = xilinx_spi_of_match,
 	},
 };

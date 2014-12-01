@@ -8,21 +8,6 @@
  * License as published by the Free Software Foundation;
  * either version 2 of the License, or (at your option) any
  * later version.
- *
- * Workaround in Receive Mode
- *	If there is only one message to be processed, then based on length of
- *	the message we set the HOLD bit.
- *	If the length is less than the FIFO depth, then we will directly
- *	receive a COMP interrupt and the transaction is done.
- *	If the length is more than the FIFO depth, then we enable the HOLD bit.
- *	if the requested data is greater than the  max transfer size(252 bytes)
- *	update the transfer size register with max transfer size else update
- *	with the requested size.
- *	We will receive the DATA interrupt, if the transfer size register value
- *	is zero then repeat the above step for the remaining bytes (if any) and
- *	process the data in the fifo.
- *
- *	The bus hold flag logic provides support for repeated start.
  */
 
 #include <linux/clk.h>
@@ -905,7 +890,6 @@ MODULE_DEVICE_TABLE(of, cdns_i2c_of_match);
 static struct platform_driver cdns_i2c_drv = {
 	.driver = {
 		.name  = DRIVER_NAME,
-		.owner = THIS_MODULE,
 		.of_match_table = cdns_i2c_of_match,
 		.pm = &cdns_i2c_dev_pm_ops,
 	},

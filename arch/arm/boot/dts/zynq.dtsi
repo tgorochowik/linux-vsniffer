@@ -4,26 +4,31 @@
 	#size-cells = <1>;
 	interrupt-parent = <&gic>;
 
+	aliases {
+		ethernet0 = &eth;
+		serial0 = &uart1;
+	};
+
 	cpus {
 		#address-cells = <1>;
-		#cpus = <0x2>;
 		#size-cells = <0>;
 		ps7_cortexa9_0: cpu@0 {
+			bus-handle = <&axi>;
+			clock-latency = <1000>;
+			clocks = <&clkc 3>;
 			compatible = "arm,cortex-a9";
-			d-cache-line-size = <0x20>;
-			d-cache-size = <0x8000>;
 			device_type = "cpu";
-			i-cache-line-size = <0x20>;
-			i-cache-size = <0x8000>;
+			interrupt-handle = <&gic>;
+			operating-points = <666667 1000000 333334 1000000 222223 1000000>;
 			reg = <0x0>;
-		} ;
+		};
+
 		ps7_cortexa9_1: cpu@1 {
+			bus-handle = <&axi>;
+			clocks = <&clkc 3>;
 			compatible = "arm,cortex-a9";
-			d-cache-line-size = <0x20>;
-			d-cache-size = <0x8000>;
 			device_type = "cpu";
-			i-cache-line-size = <0x20>;
-			i-cache-size = <0x8000>;
+			interrupt-handle = <&gic>;
 			reg = <0x1>;
 		};
 	};
@@ -32,14 +37,11 @@
 		compatible = "arm,cortex-a9-pmu";
 		interrupts = <0 5 4>, <0 6 4>;
 		interrupt-parent = <&gic>;
+		reg = <0xf8891000 0x1000>, <0xf8893000 0x1000>;
+		reg-names = "cpu0", "cpu1";
 	};
 
-	aliases {
-		ethernet0 = &eth;
-		serial0 = &uart;
-	};
-
-	amba@0 {
+	axi: amba@0 {
 		compatible = "simple-bus";
 		#address-cells = <0x1>;
 		#size-cells = <0x1>;
@@ -62,7 +64,20 @@
 			arm,tag-latency = <2 2 2>;
 		};
 
-		uart: uart@e0001000 {
+		uart0: uart@e0000000 {
+			compatible = "xlnx,xuartps";
+			status = "disabled";
+			reg = <0xe0000000 0x1000>;
+			interrupts = <0 27 4>;
+			interrupt-parent = <&gic>;
+			clock-names = "ref_clk", "aper_clk";
+			clocks = <&clkc 23>, <&clkc 40>;
+			port-number = <0>;
+			current-speed = <115200>;
+			device_type = "serial";
+		};
+
+		uart1: uart@e0001000 {
 			compatible = "xlnx,xuartps";
 			reg = <0xe0001000 0x1000>;
 			interrupts = < 0 50 4>;
@@ -178,6 +193,8 @@
 			clocks = <&clkc 42>;
 			gpio-controller;
 			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
 		};
 
 		sdhci@e0100000 {
@@ -199,6 +216,34 @@
 			clocks = <&clkc 28>;
 			dr_mode = "host";
 			phy_type = "ulpi";
+		};
+
+		spi0: spi@e0006000 {
+			compatible = "cdns,spi-r1p6", "xlnx,zynq-spi-1.00.a", "xlnx,ps7-spi-1.00.a";
+			interrupt-parent = <&gic>;
+			interrupts = <0 26 4>;
+			clock-names = "ref_clk", "aper_clk", "pclk";
+			clocks = <&clkc 25>, <&clkc 34>, <&clkc 34>;
+			num-chip-select = <4>;
+			reg = <0xe0006000 0x1000>;
+			speed-hz = <100000000>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		spi1: spi@e0007000 {
+			compatible = "cdns,spi-r1p6", "xlnx,zynq-spi-1.00.a", "xlnx,ps7-spi-1.00.a";
+			interrupt-parent = <&gic>;
+			interrupts = <0 49 4>;
+			clock-names = "ref_clk", "aper_clk", "pclk";
+			clocks = <&clkc 26>, <&clkc 35>, <&clkc 35>;
+			num-chip-select = <4>;
+			reg = <0xe0007000 0x1000>;
+			speed-hz = <100000000>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
 		};
 
 		qspi0: qspi@e000d000 {
@@ -246,7 +291,7 @@
 		};
 
 		devcfg@f8007000 {
-			compatible = "xlnx,ps7-dev-cfg-1.00.a";
+			compatible = "xlnx,zynq-devcfg-1.0";
 			reg = <0xf8007000 0x100>;
 			interrupts = <0 8 4>;
 			interrupt-parent = <&gic>;
@@ -263,16 +308,16 @@
 		};
 
 		ps7_ddrc_0: ps7-ddrc@f8006000 {
-			compatible = "xlnx,ps7-ddrc-1.00.a", "xlnx,ps7-ddrc", "xlnx,zynq-ddrc-1.00.a";
+			compatible = "xlnx,ps7-ddrc-1.00.a", "xlnx,ps7-ddrc", "xlnx,zynq-ddrc-1.0";
 			reg = <0xf8006000 0x1000>;
 			xlnx,has-ecc = <0x0>;
 		} ;
 
-		ps7_ocm_0: ps7-ocm@0xfffc0000 {
-			compatible = "xlnx,ps7-ocmc-1.00.a", "xlnx,zynq-ocm-1.0";
+		ps7_ocm_0: ps7-ocm@f800c000 {
+			compatible = "xlnx,ps7-ocmc-1.00.a", "xlnx,zynq-ocmc-1.0";
 			interrupt-parent = <&gic>;
 			interrupts = <0 3 4>;
-			reg = <0xfffc0000 0x40000>; /* 256k */
+			reg = <0xf800c000 0x1000>;
 		};
 	};
 };

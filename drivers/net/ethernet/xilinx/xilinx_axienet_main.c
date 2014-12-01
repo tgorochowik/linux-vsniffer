@@ -767,7 +767,7 @@ static void axienet_recv(struct net_device *ndev)
 				skb->ip_summed = CHECKSUM_UNNECESSARY;
 			}
 		} else if ((lp->features & XAE_FEATURE_PARTIAL_RX_CSUM) != 0 &&
-			   skb->protocol == __constant_htons(ETH_P_IP) &&
+			   skb->protocol == htons(ETH_P_IP) &&
 			   skb->len > 64) {
 			skb->csum = be32_to_cpu(cur_p->app3 & 0xFFFF);
 			skb->ip_summed = CHECKSUM_COMPLETE;
@@ -949,6 +949,20 @@ static int axienet_open(struct net_device *ndev)
 			lp->phy_dev = of_phy_connect(lp->ndev, lp->phy_node,
 					     axienet_adjust_link, 0,
 					     PHY_INTERFACE_MODE_RGMII_ID);
+		} else if (lp->phy_type == XAE_PHY_TYPE_SGMII) {
+
+			/**
+			 * No need to start the internal PHY, applying the fixup
+			 * is enough for SGMII operation
+			 */
+			if (lp->phy_node_int)
+				lp->phy_dev_int = of_phy_connect(lp->ndev,
+					lp->phy_node_int, NULL, 0,
+					PHY_INTERFACE_MODE_GMII);
+
+			lp->phy_dev = of_phy_connect(lp->ndev, lp->phy_node,
+					     axienet_adjust_link, 0,
+					     PHY_INTERFACE_MODE_SGMII);
 		}
 
 		if (!lp->phy_dev)
@@ -1515,6 +1529,18 @@ static void axienet_dma_err_handler(unsigned long data)
 }
 
 /**
+ * axienet_pma_phy_fixup - PCS/PMA Internal PHY fixup.
+ * @phy: the pointer to the phy device
+ *
+ * The internal PHY powers up with BMCR_ISOLATE beeing set, clear it.
+ */
+
+static int axienet_pma_phy_fixup(struct phy_device *phy)
+{
+	return phy_write(phy, MII_BMCR, BMCR_ANENABLE | BMCR_FULLDPLX);
+}
+
+/**
  * axienet_probe - Axi Ethernet probe function.
  * @pdev:		Pointer to platform device structure.
  *
@@ -1540,7 +1566,6 @@ static int axienet_probe(struct platform_device *pdev)
 	if (!ndev)
 		return -ENOMEM;
 
-	ether_setup(ndev);
 	platform_set_drvdata(pdev, ndev);
 
 	SET_NETDEV_DEV(ndev, &pdev->dev);
@@ -1556,9 +1581,8 @@ static int axienet_probe(struct platform_device *pdev)
 	/* Map device registers */
 	ethres = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	lp->regs = devm_ioremap_resource(&pdev->dev, ethres);
-	if (!lp->regs) {
-		dev_err(&pdev->dev, "could not map Axi Ethernet regs.\n");
-		ret = -ENOMEM;
+	if (IS_ERR(lp->regs)) {
+		ret = PTR_ERR(lp->regs);
 		goto free_netdev;
 	}
 
@@ -1631,9 +1655,8 @@ static int axienet_probe(struct platform_device *pdev)
 		goto free_netdev;
 	}
 	lp->dma_regs = devm_ioremap_resource(&pdev->dev, &dmares);
-	if (!lp->dma_regs) {
-		dev_err(&pdev->dev, "could not map DMA regs\n");
-		ret = -ENOMEM;
+	if (IS_ERR(lp->dma_regs)) {
+		ret = PTR_ERR(lp->dma_regs);
 		goto free_netdev;
 	}
 	lp->rx_irq = irq_of_parse_and_map(np, 1);
@@ -1664,9 +1687,18 @@ static int axienet_probe(struct platform_device *pdev)
 			dev_warn(&pdev->dev, "error registering MDIO bus\n");
 	}
 
+	if (lp->phy_type == XAE_PHY_TYPE_SGMII) {
+		lp->phy_node_int = of_parse_phandle(pdev->dev.of_node,
+						    "phy-handle", 1);
+		if (lp->phy_node_int)
+			phy_register_fixup_for_uid(0, 0xffffffff,
+						   axienet_pma_phy_fixup);
+	}
+
 	ret = register_netdev(lp->ndev);
 	if (ret) {
 		dev_err(lp->dev, "register_netdev() error (%i)\n", ret);
+		axienet_mdio_teardown(lp);
 		goto free_netdev;
 	}
 
@@ -1686,9 +1718,12 @@ static int axienet_remove(struct platform_device *pdev)
 	axienet_mdio_teardown(lp);
 	unregister_netdev(ndev);
 
-	if (lp->phy_node)
-		of_node_put(lp->phy_node);
+	of_node_put(lp->phy_node);
 	lp->phy_node = NULL;
+
+	if (lp->phy_node_int)
+		of_node_put(lp->phy_node_int);
+	lp->phy_node_int = NULL;
 
 	free_netdev(ndev);
 
@@ -1699,7 +1734,6 @@ static struct platform_driver axienet_driver = {
 	.probe = axienet_probe,
 	.remove = axienet_remove,
 	.driver = {
-		 .owner = THIS_MODULE,
 		 .name = "xilinx_axienet",
 		 .of_match_table = axienet_of_match,
 	},

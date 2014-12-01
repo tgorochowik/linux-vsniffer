@@ -11,7 +11,6 @@
  */
 
 #include <linux/amba/xilinx_dma.h>
-#include <linux/dmaengine.h>
 #include <linux/lcm.h>
 #include <linux/list.h>
 #include <linux/module.h>
@@ -138,8 +137,8 @@ static int xvip_pipeline_start_stop(struct xvip_pipeline *pipe, bool start)
 
 	while (1) {
 		pad = xvip_get_entity_sink(entity, pad);
-		if (IS_ERR(pad))
-			return PTR_ERR(pad);
+		if (pad == NULL)
+			break;
 
 		if (!(pad->flags & MEDIA_PAD_FL_SINK))
 			break;
@@ -374,19 +373,33 @@ static void xvip_dma_buffer_queue(struct vb2_buffer *vb)
 	struct xvip_dma *dma = vb2_get_drv_priv(vb->vb2_queue);
 	struct xvip_dma_buffer *buf = to_xvip_dma_buffer(vb);
 	struct dma_async_tx_descriptor *desc;
-	enum dma_transfer_direction dir;
 	u32 flags;
 
 	if (dma->queue.type == V4L2_BUF_TYPE_VIDEO_CAPTURE) {
 		flags = DMA_PREP_INTERRUPT | DMA_CTRL_ACK;
-		dir = DMA_DEV_TO_MEM;
+		dma->xt.dir = DMA_DEV_TO_MEM;
+		dma->xt.src_sgl = false;
+		dma->xt.dst_sgl = true;
+		dma->xt.dst_start = buf->addr;
 	} else {
 		flags = DMA_PREP_INTERRUPT | DMA_CTRL_ACK;
-		dir = DMA_MEM_TO_DEV;
+		dma->xt.dir = DMA_MEM_TO_DEV;
+		dma->xt.src_sgl = true;
+		dma->xt.dst_sgl = false;
+		dma->xt.src_start = buf->addr;
 	}
 
-	desc = dmaengine_prep_slave_single(dma->dma, buf->addr, buf->length,
-					   dir, flags);
+	dma->xt.frame_size = 1;
+	dma->sgl[0].size = dma->format.width * dma->fmtinfo->bpp;
+	dma->sgl[0].icg = dma->format.bytesperline - dma->sgl[0].size;
+	dma->xt.numf = dma->format.height;
+
+	desc = dmaengine_prep_interleaved_dma(dma->dma, &dma->xt, flags);
+	if (!desc) {
+		dev_err(dma->xdev->dev, "Failed to prepare DMA transfer\n");
+		vb2_buffer_done(&buf->buf, VB2_BUF_STATE_ERROR);
+		return;
+	}
 	desc->callback = xvip_dma_complete;
 	desc->callback_param = buf;
 
@@ -458,7 +471,7 @@ error:
 	return ret;
 }
 
-static int xvip_dma_stop_streaming(struct vb2_queue *vq)
+static void xvip_dma_stop_streaming(struct vb2_queue *vq)
 {
 	struct xvip_dma *dma = vb2_get_drv_priv(vq);
 	struct xvip_pipeline *pipe = to_xvip_pipeline(&dma->video.entity);
@@ -478,8 +491,6 @@ static int xvip_dma_stop_streaming(struct vb2_queue *vq)
 	/* Cleanup the pipeline and mark it as being stopped. */
 	xvip_pipeline_cleanup(pipe);
 	media_entity_pipeline_stop(&dma->video.entity);
-
-	return 0;
 }
 
 static struct vb2_ops xvip_dma_queue_qops = {
@@ -530,6 +541,8 @@ xvip_dma_enum_format(struct file *file, void *fh, struct v4l2_fmtdesc *f)
 
 	mutex_lock(&dma->lock);
 	f->pixelformat = dma->format.pixelformat;
+	strlcpy(f->description, dma->fmtinfo->description,
+		sizeof(f->description));
 	mutex_unlock(&dma->lock);
 
 	return 0;
@@ -591,10 +604,6 @@ __xvip_dma_try_format(struct xvip_dma *dma, struct v4l2_pix_format *pix,
 	 */
 	min_bpl = pix->width * info->bpp;
 	max_bpl = rounddown(XVIP_DMA_MAX_WIDTH, dma->align);
-	/* HACK: mplayer (svn r32540) doesn't initialize the byteperline field,
-	 * so hardcode it to the minimum value.
-	 */
-	pix->bytesperline = min_bpl;
 	bpl = rounddown(pix->bytesperline, dma->align);
 
 	pix->bytesperline = clamp(bpl, min_bpl, max_bpl);
@@ -640,9 +649,6 @@ xvip_dma_set_format(struct file *file, void *fh, struct v4l2_format *format)
 
 	config.park = 1;
 	config.park_frm = 0;
-	config.vsize = dma->format.height;
-	config.hsize = dma->format.width * info->bpp;
-	config.stride = dma->format.bytesperline;
 	config.ext_fsync = 2;
 
 	dmaengine_device_control(dma->dma, DMA_SLAVE_CONFIG,
@@ -922,7 +928,7 @@ int xvip_dma_init(struct xvip_composite_device *xdev, struct xvip_dma *dma,
 
 	ret = media_entity_init(&dma->video.entity, 1, &dma->pad, 0);
 	if (ret < 0)
-		return ret;
+		goto error;
 
 	/* ... and the video node... */
 	dma->video.v4l2_dev = &xdev->v4l2_dev;
@@ -950,7 +956,7 @@ int xvip_dma_init(struct xvip_composite_device *xdev, struct xvip_dma *dma,
 	dma->queue.buf_struct_size = sizeof(struct xvip_dma_buffer);
 	dma->queue.ops = &xvip_dma_queue_qops;
 	dma->queue.mem_ops = &vb2_dma_contig_memops;
-	dma->queue.timestamp_type = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
+	dma->queue.timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
 	ret = vb2_queue_init(&dma->queue);
 	if (ret < 0) {
 		dev_err(dma->xdev->dev, "failed to initialize VB2 queue\n");
@@ -977,7 +983,6 @@ int xvip_dma_init(struct xvip_composite_device *xdev, struct xvip_dma *dma,
 	return 0;
 
 error:
-	vb2_dma_contig_cleanup_ctx(dma->alloc_ctx);
 	xvip_dma_cleanup(dma);
 	return ret;
 }
@@ -990,7 +995,9 @@ void xvip_dma_cleanup(struct xvip_dma *dma)
 	if (dma->dma)
 		dma_release_channel(dma->dma);
 
-	vb2_dma_contig_cleanup_ctx(dma->alloc_ctx);
+	if (!IS_ERR_OR_NULL(dma->alloc_ctx))
+		vb2_dma_contig_cleanup_ctx(dma->alloc_ctx);
+
 	media_entity_cleanup(&dma->video.entity);
 
 	mutex_destroy(&dma->lock);

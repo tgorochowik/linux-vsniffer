@@ -72,7 +72,6 @@
 #include <linux/module.h>
 #include <linux/device.h>
 #include <linux/kernel.h>
-#include <linux/init.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
 
@@ -458,7 +457,7 @@ static ssize_t sysfs_set_reg(struct device *dev,
 	int err;
 
 	if (reg & DPOT_ADDR_OTP_EN) {
-		if (!strncmp(buf, "enabled", sizeof("enabled")))
+		if (!strncmp(buf, "enabled", sizeof("enabled") - 1))
 			set_bit(DPOT_RDAC_MASK & reg, data->otp_en_mask);
 		else
 			clear_bit(DPOT_RDAC_MASK & reg, data->otp_en_mask);
