@@ -1,0 +1,4 @@
+/dts-v1/;
+
+/include/ "zynq-mars-zx3.dtsi"
+/include/ "zynq-axi-dispctrl.dtsi"

@@ -1,0 +1,26 @@
+/include/ "zynq.dtsi"
+
+/ {
+	model = "Enclustra Mars-ZX3";
+	memory {
+		device_type = "memory";
+		reg = <0x000000000 0x20000000>;
+	};
+
+	chosen {
+		bootargs = "console=ttyPS0,115200 root=/dev/mmcblk0p2 rw earlyprintk rootfstype=ext4 rootwait";
+		linux,stdout-path = "/amba@0/uart@E0001000";
+	};
+};
+
+&eth {
+	phy-handle = <&phy0>;
+	phy-mode = "rgmii-id";
+
+	phy0: phy@3 {
+		compatible = "micrel,ksz9031";
+		device_type = "ethernet-phy";
+		reg = <0x3>;
+	};
+};
+
