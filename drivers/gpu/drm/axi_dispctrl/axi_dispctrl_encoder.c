@@ -187,6 +187,7 @@ static void axi_dispctrl_encoder_mode_set(struct drm_encoder *encoder,
 {
 	struct axi_dispctrl_private *private = encoder->dev->dev_private;
 	uint32_t vgaReg[5];
+	uint32_t clock;
 	uint32_t i;
 	uint32_t hpol = 1, vpol = 1;
 	struct clk_mode clk_params;
@@ -212,7 +213,9 @@ static void axi_dispctrl_encoder_mode_set(struct drm_encoder *encoder,
 	}
 	/* calc and set clocks */
 	/* clk in MHz, and for the HDMI we need 5 times faster clk */
-	axi_dispctrl_encoder_find_clock_parms (mode->clock * 1000 * 5, &clk_params);
+	clock = mode->clock * 1000;
+	if(!private->lcd_mode) clock *= 5;
+	axi_dispctrl_encoder_find_clock_parms (clock, &clk_params);
 
 	axi_dispctrl_clk_find_reg(&clk_regs, &clk_params);
 
