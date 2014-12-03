@@ -142,16 +142,18 @@ static struct drm_driver axi_dispctrl_driver = {
 static const struct of_device_id axi_dispctrl_encoder_of_match[] = {
         {
                 .compatible = "ant,axi-dispctrl-tx",
-                //.data = (const void *)AXI_HDMI
         },
         {},
 };
-MODULE_DEVICE_TABLE(of, axi_dispctrl__encoder_of_match);
+MODULE_DEVICE_TABLE(of, axi_dispctrl_encoder_of_match);
 
 static int axi_dispctrl_platform_probe(struct platform_device *pdev)
 {
 	struct axi_dispctrl_private *private;
+	struct device_node *child, *np = pdev->dev.of_node;
+	const struct of_device_id *id;
 	struct resource *res;
+	int err;
 
 	private = devm_kzalloc(&pdev->dev, sizeof(*private), GFP_KERNEL);
         if (!private) {
@@ -167,6 +169,47 @@ static int axi_dispctrl_platform_probe(struct platform_device *pdev)
 	private->dma = dma_request_slave_channel(&pdev->dev, "video");
         if (private->dma == NULL) 
                 return -EPROBE_DEFER;
+
+	private->lcd_mode = of_property_read_bool(np, "ant,lcd-mode");
+	pr_dev_info("We are%sin lcd_mode \n", private->lcd_mode?" ":" not ");
+
+	if (private->lcd_mode) {
+		for_each_child_of_node(np, child) {
+			id = of_match_node(displays_of_match, child);
+			/* check for the predefined LCD's */
+			if(id){
+				private->lcd_fixed_mode = devm_kzalloc(&pdev->dev, sizeof(*private->lcd_fixed_mode), GFP_KERNEL);
+				if(!private->lcd_fixed_mode)
+					return -ENOMEM;
+				memcpy((void*)private->lcd_fixed_mode, (void*)id->data, sizeof(*private->lcd_fixed_mode));
+			
+			/* if any predefined wasn't found check if the custom
+		    	   setting are provided */
+			}else if (of_device_is_compatible(child, "custom")){
+				private->lcd_fixed_mode = devm_kzalloc(&pdev->dev, sizeof(*private->lcd_fixed_mode), GFP_KERNEL);
+				if(!private->lcd_fixed_mode) 
+					return -ENOMEM;
+				/* get custom LCD properties */
+				if((err = of_property_read_u32(child, "lcd,clock", (u32*)&(private->lcd_fixed_mode->clock)))) return err;
+				if((err = of_property_read_u32(child, "lcd,hdisplay", (u32*)&(private->lcd_fixed_mode->hdisplay)))) return err;
+				if((err = of_property_read_u32(child, "lcd,hsync_start", (u32*)&(private->lcd_fixed_mode->hsync_start)))) return err;
+				if((err = of_property_read_u32(child, "lcd,hsync_end", (u32*)&(private->lcd_fixed_mode->hsync_end)))) return err;
+				if((err = of_property_read_u32(child, "lcd,htotal", (u32*)&(private->lcd_fixed_mode->htotal)))) return err;
+				if((err = of_property_read_u32(child, "lcd,vdisplay", (u32*)&(private->lcd_fixed_mode->vdisplay)))) return err;
+				if((err = of_property_read_u32(child, "lcd,vsync_start", (u32*)&(private->lcd_fixed_mode->vsync_start)))) return err;
+				if((err = of_property_read_u32(child, "lcd,vsync_end", (u32*)&(private->lcd_fixed_mode->vsync_end)))) return err;
+				if((err = of_property_read_u32(child, "lcd,vtotal", (u32*)&(private->lcd_fixed_mode->vtotal)))) return err;
+				if((err = of_property_read_u32(child, "lcd,vrefresh", (u32*)&(private->lcd_fixed_mode->vrefresh)))) return err;
+				if((err = of_property_read_u32(child, "lcd,flags", (u32*)&(private->lcd_fixed_mode->flags)))) return err;
+			/* If no display was provided - fail */
+			}else{
+				pr_dev_info("No LCD display provided, or provided unknown model\n");
+				return -EINVAL;
+			}
+			/* We can handle only one LCD display */
+			break; 
+		}	
+	}
 
 	platform_set_drvdata(pdev, private);
 

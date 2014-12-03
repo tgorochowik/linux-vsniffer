@@ -1,0 +1,55 @@
+/ {
+	fpga_axi: fpga-axi@0 {
+		compatible = "simple-bus";
+		#address-cells = <0x1>;
+		#size-cells = <0x1>;
+		ranges;
+
+		axi_vdma_0: axivdma@43000000 {
+			compatible = "xlnx,axi-vdma";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			#dma-cells = <1>;
+			#dma-channels = <1>;
+			reg = <0x43000000 0x1000>;
+			xlnx,include-sg = <0x0>;
+			xlnx,num-fstores = <0x3>;
+			dma-channel@43000000 {
+				compatible = "xlnx,axi-vdma-mm2s-channel";
+				interrupts = <0 59 0x4>;
+				xlnx,datawidth = <0x20>;
+				xlnx,genlock-mode = <0x0>;
+				xlnx,include-dre = <0x0>;
+			};
+		};
+
+
+		axi_hdmi@75c00000 {
+			compatible = "ant,axi-dispctrl-tx";
+			reg = <0x75c00000 0x10000>;
+			dmas = <&axi_vdma_0 0>;
+			dma-names = "video";
+			ant,lcd-mode;
+			#size-cells = <1>;
+			#address-cells = <0>;
+			lcd@0 {
+				compatible = "edt,etm0700g0dh6";
+				/* custom LCD example
+				compatible = "custom";
+				lcd,clock = <33260>;
+			        lcd,hdisplay = <800>;
+				lcd,hsync_start = <840>;
+				lcd,hsync_end = <968>;
+				lcd,htotal = <1056>;
+				lcd,vdisplay = <480>;
+				lcd,vsync_start = <490>;
+				lcd,vsync_end = <492>;
+				lcd,vtotal = <525>;
+				lcd,vrefresh = <60>;
+				lcd,flags = <0x0B>; /* NVSYNC | NHSYNC */
+			}; 
+		};
+
+	};
+
+};

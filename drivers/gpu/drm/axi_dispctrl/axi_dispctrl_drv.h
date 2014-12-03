@@ -15,7 +15,11 @@ struct axi_dispctrl_private {
 	
         struct dma_chan *dma;
 
+	bool lcd_mode;
+	struct drm_display_mode *lcd_fixed_mode;
 };
+
+extern struct of_device_id displays_of_match[];
 
 #define pr_dev_info(fmt, ...) \
          printk(KERN_ERR"%s [%s:%d] "fmt,__FILE__, __func__, __LINE__, ##__VA_ARGS__)

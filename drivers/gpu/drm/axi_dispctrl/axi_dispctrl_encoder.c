@@ -188,13 +188,14 @@ static void axi_dispctrl_encoder_mode_set(struct drm_encoder *encoder,
 	struct axi_dispctrl_private *private = encoder->dev->dev_private;
 	uint32_t vgaReg[5];
 	uint32_t i;
-	uint32_t pol = 1;
+	uint32_t hpol = 1, vpol = 1;
 	struct clk_mode clk_params;
 	struct clk_config clk_regs;
 
-	if( (mode->hdisplay < 800) && (mode->vdisplay < 600) ) 
-		pol = 0;
-	
+	if(mode->flags & DRM_MODE_FLAG_NHSYNC)  
+		hpol = 0;
+	if(mode->flags & DRM_MODE_FLAG_NHSYNC)
+		vpol = 0;
 	/*pr_dev_info("Mode is:\nhdisplay = %d\nhsync_start = %d\nhsync_end = %d\nhtotal = %d\nhskew = %d\n vdisplay = %d\nvsync_start=%d\nvsync_end = %d\nvtotal = %d\nvscan = %d\n", mode->hdisplay,
 		     mode->hsync_start, mode->hsync_end, mode->htotal,
 		     mode->hskew, mode->vdisplay, mode->vsync_start,
@@ -202,9 +203,9 @@ static void axi_dispctrl_encoder_mode_set(struct drm_encoder *encoder,
 
 	vgaReg[0] = (mode->hdisplay << 16) | (mode->vdisplay);
 	vgaReg[1] = (mode->hsync_start << 16) | (mode->hsync_end);
-	vgaReg[2] = (pol << 16) | (mode->htotal);
+	vgaReg[2] = (hpol << 16) | (mode->htotal);
 	vgaReg[3] = (mode->vsync_start << 16) | (mode->vsync_end);
-	vgaReg[4] = (pol << 16) | (mode->vtotal);  
+	vgaReg[4] = (vpol << 16) | (mode->vtotal);  
 
     	for (i = 0; i < 5; i++) {
 		writel(vgaReg[i], private->base + OFST_DISPLAY_VIDEO_START + (i * 4) );
@@ -289,11 +290,25 @@ struct drm_encoder *axi_dispctrl_encoder_create(struct drm_device *dev)
 
 static int axi_dispctrl_connector_get_modes(struct drm_connector *connector)
 {
+	struct axi_dispctrl_private *private = connector->dev->dev_private;
+	struct drm_display_mode *mode;
+
 	int count = 0;
-	
-	//XXX: Use real edid 
-	drm_mode_connector_update_edid_property(connector, (struct edid *) samsung_edid);
-	count = drm_add_edid_modes(connector, (struct edid *) samsung_edid);
+	/* If we are in lcd mode use fixed modes */
+	if ( private->lcd_mode ) {
+		mode = drm_mode_duplicate(connector->dev, private->lcd_fixed_mode);
+		if(!mode) 
+			return 0;
+		drm_mode_set_name(mode);
+		drm_mode_probed_add(connector, mode);
+		count++;
+	}
+	/* Get edid otherwise */
+	else {
+		//XXX: Use real edid 
+		drm_mode_connector_update_edid_property(connector, (struct edid *) samsung_edid);
+		count = drm_add_edid_modes(connector, (struct edid *) samsung_edid);
+	}
 
 	return count;
 }

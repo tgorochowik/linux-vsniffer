@@ -11,9 +11,33 @@
 
 
 #include <linux/types.h>
+#include <drm/drmP.h>
+
+struct drm_display_mode edt_etm0700g0dh6_mode = { 
+        .clock = 33260,
+        .hdisplay = 800,
+        .hsync_start = 800 + 40, 
+        .hsync_end = 800 + 40 + 128,
+        .htotal = 800 + 40 + 128 + 88, 
+        .vdisplay = 480,
+        .vsync_start = 480 + 10, 
+        .vsync_end = 480 + 10 + 2,
+        .vtotal = 480 + 10 + 2 + 33, 
+        .vrefresh = 60, 
+        .flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
+};
+
+struct of_device_id displays_of_match[] = {
+	{
+		.compatible = "edt,etm0700g0dh6",
+	        .data = &edt_etm0700g0dh6_mode,
+        }, {
+	}
+};
+
+MODULE_DEVICE_TABLE(of, displays_of_match);
 
 /* fake edid */
-
 uint8_t samsung_edid[] =\
 {0x00 ,0xff ,0xff ,0xff ,0xff ,0xff ,0xff ,0x00 ,0x4c ,0x2d ,0x20 ,0x0a ,0x31 ,0x38 ,0x32 ,0x30\
 ,0x30 ,0x17 ,0x01 ,0x03 ,0x80 ,0x30 ,0x1b ,0x78 ,0x2a ,0x90 ,0xc1 ,0xa2 ,0x59 ,0x55 ,0x9c ,0x27\
