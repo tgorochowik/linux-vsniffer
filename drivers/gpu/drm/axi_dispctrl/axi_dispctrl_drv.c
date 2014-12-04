@@ -180,7 +180,7 @@ static int axi_dispctrl_platform_probe(struct platform_device *pdev)
 		for_each_child_of_node(np, child) {
 			id = of_match_node(displays_of_match, child);
 			/* check for the predefined LCD's */
-			if(id){
+			if(id) {
 				private->lcd_fixed_mode = devm_kzalloc(&pdev->dev, sizeof(*private->lcd_fixed_mode), GFP_KERNEL);
 				if(!private->lcd_fixed_mode)
 					return -ENOMEM;
@@ -188,7 +188,7 @@ static int axi_dispctrl_platform_probe(struct platform_device *pdev)
 			
 			/* if any predefined wasn't found check if the custom
 		    	   setting are provided */
-			}else if (of_device_is_compatible(child, "custom")){
+			}else if (of_device_is_compatible(child, "custom")) {
 				private->lcd_fixed_mode = devm_kzalloc(&pdev->dev, sizeof(*private->lcd_fixed_mode), GFP_KERNEL);
 				if(!private->lcd_fixed_mode) 
 					return -ENOMEM;
@@ -204,16 +204,15 @@ static int axi_dispctrl_platform_probe(struct platform_device *pdev)
 				if((err = of_property_read_u32(child, "lcd,vtotal", (u32*)&(private->lcd_fixed_mode->vtotal)))) return err;
 				if((err = of_property_read_u32(child, "lcd,vrefresh", (u32*)&(private->lcd_fixed_mode->vrefresh)))) return err;
 				if((err = of_property_read_u32(child, "lcd,flags", (u32*)&(private->lcd_fixed_mode->flags)))) return err;
-			/* If no display was provided - fail */
-			}else{
-				pr_dev_info("No LCD display provided, or provided unknown model\n");
-				return -EINVAL;
 			}
 			/* We can handle only one LCD display */
-			break; 
+			if(private->lcd_fixed_mode) break; 
 		}
 		/* check if any display was found */
-		if (!private->lcd_fixed_mode) return -EINVAL;
+		if (!private->lcd_fixed_mode) {
+			pr_dev_info("No LCD display provided, or provided unknown model\n");
+			return -EINVAL;
+		}
 	}
 
 	platform_set_drvdata(pdev, private);
