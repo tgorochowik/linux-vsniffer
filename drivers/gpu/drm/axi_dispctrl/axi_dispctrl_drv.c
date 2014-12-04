@@ -173,7 +173,7 @@ static int axi_dispctrl_platform_probe(struct platform_device *pdev)
         if (private->dma == NULL) 
                 return -EPROBE_DEFER;
 
-	private->lcd_mode = of_device_is_compatible(np, "ant,axi-dispctrl-lcd");/*of_property_read_bool(np, "ant,lcd-mode");*/
+	private->lcd_mode = of_device_is_compatible(np, "ant,axi-dispctrl-lcd");
 	pr_dev_info("We are%sin lcd_mode \n", private->lcd_mode?" ":" not ");
 
 	if (private->lcd_mode) {
