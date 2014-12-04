@@ -141,8 +141,11 @@ static struct drm_driver axi_dispctrl_driver = {
 
 static const struct of_device_id axi_dispctrl_encoder_of_match[] = {
         {
-                .compatible = "ant,axi-dispctrl-tx",
+                .compatible = "ant,axi-dispctrl-hdmi-tx",
         },
+	{
+		.compatible = "ant,axi-dispctrl-lcd",
+	},
         {},
 };
 MODULE_DEVICE_TABLE(of, axi_dispctrl_encoder_of_match);
@@ -170,7 +173,7 @@ static int axi_dispctrl_platform_probe(struct platform_device *pdev)
         if (private->dma == NULL) 
                 return -EPROBE_DEFER;
 
-	private->lcd_mode = of_property_read_bool(np, "ant,lcd-mode");
+	private->lcd_mode = of_device_is_compatible(np, "ant,axi-dispctrl-lcd");/*of_property_read_bool(np, "ant,lcd-mode");*/
 	pr_dev_info("We are%sin lcd_mode \n", private->lcd_mode?" ":" not ");
 
 	if (private->lcd_mode) {

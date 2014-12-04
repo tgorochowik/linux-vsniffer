@@ -1,3 +1,22 @@
+&axi {
+	i2c0: i2c@e0004000 {
+		compatible = "xlnx,ps7-i2c-1.00.a", "cdns,i2c-r1p10";
+		reg = <0xe0004000 0x1000>;
+		interrupts = <0 25 4>;
+		interrupt-parent = <&gic>;
+		clocks = <&clkc 38>;
+		i2c-clk = <100000>;
+		#address-cells = <0x1>;
+		#size-cells = <0x0>;
+		touch@38 {
+			compatible = "edt-ft5x06";
+			reg = <0x38>;
+			interrupt-parent = <&gic>;
+			interrupts = <0 58 0x4>;
+		};
+	};
+};
+
 / {
 	fpga_axi: fpga-axi@0 {
 		compatible = "simple-bus";
@@ -25,12 +44,11 @@
 
 
 		axi_hdmi@75c00000 {
-			compatible = "ant,axi-dispctrl-tx";
+			compatible = "ant,axi-dispctrl-lcd";
 			reg = <0x75c00000 0x10000>;
 			dmas = <&axi_vdma_0 0>;
 			dma-names = "video";
-			ant,lcd-mode;
-			#size-cells = <1>;
+			#size-cells = <0>;
 			#address-cells = <0>;
 			lcd@0 {
 				compatible = "edt,etm0700g0dh6";

@@ -25,7 +25,7 @@
 
 
 		axi_hdmi@75c00000 {
-			compatible = "ant,axi-dispctrl-tx";
+			compatible = "ant,axi-dispctrl-hdmi-tx";
 			reg = <0x75c00000 0x10000>;
 			dmas = <&axi_vdma_0 0>;
 			dma-names = "video";
