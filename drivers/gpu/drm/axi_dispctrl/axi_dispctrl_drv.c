@@ -208,7 +208,9 @@ static int axi_dispctrl_platform_probe(struct platform_device *pdev)
 			}
 			/* We can handle only one LCD display */
 			break; 
-		}	
+		}
+		/* check if any display was found */
+		if (!private->lcd_fixed_mode) return -EINVAL;
 	}
 
 	platform_set_drvdata(pdev, private);

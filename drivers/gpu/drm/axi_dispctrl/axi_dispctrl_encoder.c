@@ -367,8 +367,12 @@ static int axi_dispctrl_connector_init(struct drm_device *dev,
 {
 	int type;
 	int err;
+	struct axi_dispctrl_private *private = dev->dev_private;
 
-	type = DRM_MODE_CONNECTOR_HDMIA;
+	if (private->lcd_mode)
+		type = DRM_MODE_CONNECTOR_VGA;
+	else
+		type = DRM_MODE_CONNECTOR_HDMIA;
 	connector->polled = DRM_CONNECTOR_POLL_CONNECT |
 				DRM_CONNECTOR_POLL_DISCONNECT;
 
