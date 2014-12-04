@@ -961,6 +961,7 @@ static int edt_ft5x06_ts_probe(struct i2c_client *client,
 	struct input_dev *input;
 	int error;
 	char fw_version[EDT_NAME_LEN];
+	unsigned long irqflags;
 
 	dev_dbg(&client->dev, "probing for EDT FT5x06 I2C\n");
 
@@ -1051,10 +1052,15 @@ static int edt_ft5x06_ts_probe(struct i2c_client *client,
 	input_set_drvdata(input, tsdata);
 	i2c_set_clientdata(client, tsdata);
 
+	if (client->dev.of_node)
+		irqflags = irq_get_trigger_type(client->irq);
+	else
+		irqflags = IRQF_TRIGGER_FALLING;
+
 	error = devm_request_threaded_irq(&client->dev, client->irq, NULL,
-					edt_ft5x06_ts_isr,
-					IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
-					client->name, tsdata);
+				edt_ft5x06_ts_isr,
+				irqflags | IRQF_ONESHOT,
+				client->name, tsdata);
 	if (error) {
 		dev_err(&client->dev, "Unable to request touchscreen IRQ.\n");
 		return error;
