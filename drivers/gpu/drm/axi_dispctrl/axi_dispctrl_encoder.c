@@ -51,15 +51,19 @@ static int axi_dispctrl_connector_init(struct drm_device *dev,
 static void axi_dispctrl_encoder_dpms(struct drm_encoder *encoder, int mode)
 {
 	struct axi_dispctrl_private *private = encoder->dev->dev_private;
+	uint32_t reg;
 
+	reg = readl(private->base + OFST_DISPLAY_CTRL);
 	switch (mode) {
 	case DRM_MODE_DPMS_ON:
 		/* start the display */    	
-		writel( (1 << BIT_DISPLAY_START), private->base + OFST_DISPLAY_CTRL);
+		reg |= 1 << BIT_DISPLAY_START;
+		writel(reg , private->base + OFST_DISPLAY_CTRL);
 		break;
 	default:
+		reg &= ~(1 << BIT_DISPLAY_START);
 		/* stop the display */
-		writel(0, private->base + OFST_DISPLAY_CTRL);
+		writel(reg, private->base + OFST_DISPLAY_CTRL);
 		break;
 	}
 
@@ -190,6 +194,7 @@ static void axi_dispctrl_encoder_mode_set(struct drm_encoder *encoder,
 	uint32_t clock;
 	uint32_t i;
 	uint32_t hpol = 1, vpol = 1;
+	uint32_t reg;
 	struct clk_mode clk_params;
 	struct clk_config clk_regs;
 
@@ -197,6 +202,13 @@ static void axi_dispctrl_encoder_mode_set(struct drm_encoder *encoder,
 		hpol = 0;
 	if(mode->flags & DRM_MODE_FLAG_NHSYNC)
 		vpol = 0;
+
+	if(private->invert_pix_clk) {
+		/* invert pxl_clk polarization */
+		reg = readl(private->base + OFST_DISPLAY_CTRL);
+		reg |= 1 << BIT_DISPLAY_INVERT_PIX_CLOCK;
+        	writel(reg , private->base + OFST_DISPLAY_CTRL);	
+	}
 	/*pr_dev_info("Mode is:\nhdisplay = %d\nhsync_start = %d\nhsync_end = %d\nhtotal = %d\nhskew = %d\n vdisplay = %d\nvsync_start=%d\nvsync_end = %d\nvtotal = %d\nvscan = %d\n", mode->hdisplay,
 		     mode->hsync_start, mode->hsync_end, mode->htotal,
 		     mode->hskew, mode->vdisplay, mode->vsync_start,
@@ -214,7 +226,7 @@ static void axi_dispctrl_encoder_mode_set(struct drm_encoder *encoder,
 	/* calc and set clocks */
 	/* clk in MHz, and for the HDMI we need 5 times faster clk */
 	clock = mode->clock * 1000;
-	if(!private->lcd_mode) clock *= 5;
+	/*if(!private->lcd_mode)*/ clock *= 5;
 	axi_dispctrl_encoder_find_clock_parms (clock, &clk_params);
 
 	axi_dispctrl_clk_find_reg(&clk_regs, &clk_params);

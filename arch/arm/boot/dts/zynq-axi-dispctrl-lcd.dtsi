@@ -52,17 +52,18 @@
 			#address-cells = <0>;
 			lcd@0 {
 				compatible = "edt,etm0700g0dh6";
-				/* custom LCD example
+				lcd,invert-pxl-clock; 
+				/* custom LCD example 
 				compatible = "custom";
-				lcd,clock = <33260>;
+				lcd,clock = <33333>;
 			        lcd,hdisplay = <800>;
 				lcd,hsync_start = <840>;
-				lcd,hsync_end = <968>;
+				lcd,hsync_end = <1022>;
 				lcd,htotal = <1056>;
 				lcd,vdisplay = <480>;
-				lcd,vsync_start = <490>;
-				lcd,vsync_end = <492>;
-				lcd,vtotal = <525>;
+				lcd,vsync_start = <488>;
+				lcd,vsync_end = <490>;
+				lcd,vtotal = <542>;
 				lcd,vrefresh = <60>;
 				lcd,flags = <0x0B>; /* NVSYNC | NHSYNC */
 			}; 

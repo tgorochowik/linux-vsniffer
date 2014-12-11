@@ -101,13 +101,11 @@ err_crtc:
 
 static int axi_dispctrl_unload(struct drm_device *dev)
 {
-	pr_dev_info("Enter \n");
 	return 0;
 }
 
 static void axi_dispctrl_lastclose(struct drm_device *dev)
 {
-	pr_dev_info("Enter \n");
 	return;
 }
 
@@ -206,7 +204,11 @@ static int axi_dispctrl_platform_probe(struct platform_device *pdev)
 				if((err = of_property_read_u32(child, "lcd,flags", (u32*)&(private->lcd_fixed_mode->flags)))) return err;
 			}
 			/* We can handle only one LCD display */
-			if(private->lcd_fixed_mode) break; 
+			if(private->lcd_fixed_mode) {
+				private->invert_pix_clk = of_property_read_bool(child, "lcd,invert-pxl-clock");
+				pr_dev_info("invert clock is%sset \n", private->invert_pix_clk?" ":" not ");
+				break;
+			}
 		}
 		/* check if any display was found */
 		if (!private->lcd_fixed_mode) {

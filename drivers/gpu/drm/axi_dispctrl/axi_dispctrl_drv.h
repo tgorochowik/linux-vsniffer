@@ -16,6 +16,7 @@ struct axi_dispctrl_private {
         struct dma_chan *dma;
 
 	bool lcd_mode;
+	bool invert_pix_clk;
 	struct drm_display_mode *lcd_fixed_mode;
 };
 

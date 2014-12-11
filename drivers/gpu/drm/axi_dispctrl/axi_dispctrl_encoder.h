@@ -6,6 +6,7 @@ struct drm_encoder *axi_dispctrl_encoder_create(struct drm_device *dev);
 #define IN_FREQ 100000000
 
 #define BIT_DISPLAY_START 0
+#define BIT_DISPLAY_INVERT_PIX_CLOCK 1
 
 #define OFST_DISPLAY_CTRL 0x0
 #define OFST_DISPLAY_STATUS 0x4
