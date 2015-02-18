@@ -762,6 +762,7 @@ static irqreturn_t dma_intr_handler(int irq, void *data)
 	struct xilinx_dma_chan *chan = data;
 	u32 stat;
 
+	printk(KERN_ERR"Interrupt %s \n", __func__);
 	xilinx_dma_free_transfer_list(chan, &chan->removed_list);
 
 	stat = DMA_IN(&chan->regs->sr);
@@ -1010,6 +1011,7 @@ static struct dma_async_tx_descriptor *xilinx_vdma_prep_slave_sg(
 	unsigned int i, j;
 	dma_addr_t dma_src;
 
+	printk(KERN_ERR"%s: enter \n", __func__);
 	if (!dchan)
 		return NULL;
 
@@ -1031,6 +1033,9 @@ static struct dma_async_tx_descriptor *xilinx_vdma_prep_slave_sg(
 		return NULL;
 
 	if (!chan->has_SG) {
+		printk(KERN_ERR"not SG \n");
+		printk(KERN_ERR"hsize = %d, stride = %d \n", chan->config.hsize, chan->config.frm_dly << XILINX_VDMA_FRMDLY_SHIFT | chan->config.stride);
+		printk(KERN_ERR"hsize addr = 0x%p [0x%08x] \n", &chan->addr_regs->hsize, virt_to_phys(&chan->addr_regs->hsize));
 		DMA_OUT(&chan->addr_regs->hsize, chan->config.hsize);
 		DMA_OUT(&chan->addr_regs->frmdly_stride,
 		     chan->config.frm_dly << XILINX_VDMA_FRMDLY_SHIFT |
@@ -1054,6 +1059,7 @@ static struct dma_async_tx_descriptor *xilinx_vdma_prep_slave_sg(
 						chan->config.stride;
 			} else {
 				/* Update the registers */
+				printk(KERN_ERR"dma_src = 0x%08x \n", dma_src);
 				DMA_OUT(&(chan->addr_regs->buf_addr[j * sg_len + i]), dma_src);
 			}
 		}
@@ -1075,6 +1081,8 @@ static void xilinx_vdma_start_transfer(struct xilinx_dma_chan *chan)
 		return;
 
 	spin_lock_irqsave(&chan->lock, flags);
+	printk(KERN_ERR"%s enter \n", __func__);
+
 
 	if (list_empty(&chan->pending_list))
 		goto out_unlock;
@@ -1091,8 +1099,10 @@ static void xilinx_vdma_start_transfer(struct xilinx_dma_chan *chan)
 	 */
 	dma_halt(chan);
 
-	if (chan->err)
+	if (chan->err) {
+		printk(KERN_ERR"Channel error \n");
 		goto out_unlock;
+	}
 
 	t = list_first_entry(&chan->pending_list, struct xilinx_dma_transfer, head);
 
@@ -1128,8 +1138,10 @@ static void xilinx_vdma_start_transfer(struct xilinx_dma_chan *chan)
 	 */
 	dma_start(chan);
 
-	if (chan->err)
+	if (chan->err) {
+		printk(KERN_ERR"Channel error after start\n");
 		goto out_unlock;
+	}
 	list_splice_tail_init(&chan->pending_list, &chan->active_list);
 
 	/* Enable interrupts
@@ -1145,8 +1157,10 @@ static void xilinx_vdma_start_transfer(struct xilinx_dma_chan *chan)
 	 */
 	if (chan->has_SG)
 		DMA_OUT(&chan->regs->tdr, t->descs[t->num_descs-1].phys);
-	else
+	else {
+		printk(KERN_ERR"Writing vsize = %d \n", config->vsize);
 		DMA_OUT(&chan->addr_regs->vsize, config->vsize);
+	}
 
 out_unlock:
 	spin_unlock_irqrestore(&chan->lock, flags);
