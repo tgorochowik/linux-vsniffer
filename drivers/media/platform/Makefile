@@ -54,4 +54,6 @@ obj-$(CONFIG_ARCH_OMAP)	+= omap/
 
 obj-$(CONFIG_VIDEO_XILINX)		+= xilinx/
 
+obj-y					+= antmicro/
+
 ccflags-y += -I$(srctree)/drivers/media/i2c

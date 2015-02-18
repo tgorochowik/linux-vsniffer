@@ -1,0 +1,9 @@
+#ifndef __HISPI_SENSOR_H__
+#define __HISPI_SENSOR_H__
+
+#define HISPI_IOCTL_MAGIC 'H'
+#define HISPI_START_STREAM _IO(HISPI_IOCTL_MAGIC, 1)
+#define HISPI_STOP_STREAM _IO(HISPI_IOCTL_MAGIC, 2)
+
+
+#endif
