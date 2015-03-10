@@ -37,8 +37,8 @@
 
 #include "../dmaengine.h"
 
-#define REPORT() printk(KERN_ERR"%s:%d\n",__func__, __LINE__)
-//#define REPORT()
+//#define REPORT() printk(KERN_ERR"%s:%d\n",__func__, __LINE__)
+#define REPORT()
 
 /* Register/Descriptor Offsets */
 #define XILINX_VDMA_MM2S_CTRL_OFFSET		0x0000
