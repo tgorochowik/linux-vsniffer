@@ -23,6 +23,7 @@
 #include <linux/of.h>
 #include <linux/of_dma.h>
 #include <linux/platform_device.h>
+#include <linux/delay.h>
 
 #include <linux/fs.h>
 #include <asm/uaccess.h>
@@ -45,8 +46,8 @@
 
 #include "hispi_sensor.h"
 
-#define ENTER() printk("Entering %s @ %d \n", __func__, __LINE__)
-//#define ENTER()
+//#define ENTER() printk("Entering %s @ %d \n", __func__, __LINE__)
+#define ENTER()
 
 static unsigned int hispi_read_reg(struct hispi_priv_data *priv, unsigned int offset)
 {
@@ -110,12 +111,85 @@ static int hispi_buf_prepare(struct vb2_buffer *vb)
 	ENTER();
 	size = channel->video_x * channel->video_y * channel->bpp;
 	if (vb2_plane_size(vb, 0) < size) {
-		printk(KERN_ERR"data will not fit the plane (%lu < %u)\n", 
+		printk(KERN_ERR"data will not fit the plane (%lu < %u)\n",
 						vb2_plane_size(vb, 0), size);
 		return -EINVAL;
 	}
 	vb2_set_plane_payload(vb, 0, size);
         return 0;
+}
+
+static void setup_internal_transfer(struct sensor_channel *channel)
+{
+	struct dma_async_tx_descriptor *desc;
+	struct dma_interleaved_template *xt;
+	dma_addr_t internal_dst;
+	dma_cookie_t cookie;
+
+	long size = channel->video_x * channel->video_y * channel->bpp;
+
+	internal_dst = channel->internal_buffer_base + channel->current_write_buffer*size;
+
+	xt = kzalloc(sizeof(struct dma_async_tx_descriptor) +
+			sizeof(struct data_chunk), GFP_KERNEL);
+
+	xt->dst_start = internal_dst;
+	xt->src_inc = false;
+	xt->dst_inc = true;
+	xt->src_sgl = false;
+	xt->dst_sgl = true;
+	xt->frame_size = 1;
+	xt->numf = channel->video_y;
+	xt->sgl[0].size = channel->video_x * channel->bpp;
+	xt->sgl[0].icg = 0;
+	xt->dir = DMA_DEV_TO_MEM;
+
+	//printk(KERN_ERR"Internal VDMA addr is: 0x%08x, size = %ld\n", internal_dst, size);
+
+	desc = dmaengine_prep_interleaved_dma(channel->dma, xt, DMA_PREP_INTERRUPT);
+	kfree(xt);
+	if (!desc) {
+		printk(KERN_ERR"vdma desc prepare error \n");
+		//vb2_buffer_done(vb, VB2_BUF_STATE_ERROR);
+		return;
+	}
+
+	desc->callback = hispi_internal_vdma_done;
+	desc->callback_param = channel;
+
+	cookie = dmaengine_submit(desc);
+	if (cookie < 0) {
+		printk(KERN_ERR"vdma engine submit error \n");
+		//vb2_buffer_done(vb, VB2_BUF_STATE_ERROR);
+		return;
+	}
+	/* start internal transfer */
+	dma_async_issue_pending(channel->dma);
+}
+
+static inline uint32_t get_unused_buffer(struct sensor_channel *channel)
+{
+	uint32_t i;
+
+	for(i=0; i<3; i++)
+		if( (channel->current_read_buffer != i) &&
+				(channel->current_write_buffer != i))
+			break;
+	return i;
+}
+
+static void hispi_internal_vdma_done(void *arg)
+{
+	struct sensor_channel *channel = arg;
+
+	mutex_lock(&channel->internal_lock);
+	/* find unused buffer */
+	channel->current_write_buffer = get_unused_buffer(channel);
+	channel->flip_buffers = 1;
+	mutex_unlock(&channel->internal_lock);
+	/* setup next transfer */
+	setup_internal_transfer(channel);
+	ENTER();
 }
 
 static void hispi_dma_done(void *arg)
@@ -124,8 +198,15 @@ static void hispi_dma_done(void *arg)
 	struct hispi_buffer *buf = arg;
 	struct sensor_channel *channel = vb2_get_drv_priv(buf->vb.vb2_queue);
 	unsigned long flags;
-	
+
 	ENTER();
+	/* switch the read bufferd buffers*/
+	mutex_lock(&channel->internal_lock);
+	if(channel->flip_buffers) {
+		channel->current_read_buffer = get_unused_buffer(channel);
+		channel->flip_buffers = 0;
+	}
+	mutex_unlock(&channel->internal_lock);
 
 	spin_lock_irqsave(&channel->spinlock, flags);
 	list_del(&buf->head);
@@ -133,17 +214,21 @@ static void hispi_dma_done(void *arg)
 
 	v4l2_get_timestamp(&buf->vb.v4l2_buf.timestamp);
         vb2_buffer_done(&buf->vb, VB2_BUF_STATE_DONE);
+
+	//printk(KERN_ERR"%s: new read buffer is %d \n", __func__, channel->current_read_buffer);
 }
 
 static void hispi_buf_queue(struct vb2_buffer *vb)
 {
 	unsigned long size;
 	unsigned long flags;
-	struct dma_async_tx_descriptor *desc;	
+	struct dma_async_tx_descriptor *desc;
 	struct dma_interleaved_template *xt;
-	struct xilinx_vdma_config xconf;
-	
+	//struct xilinx_vdma_config xconf;
+
 	dma_addr_t addr;
+	dma_addr_t internal_dst;
+	dma_addr_t internal_src;
 	dma_cookie_t cookie;
 
 	struct sensor_channel *channel = vb2_get_drv_priv(vb->vb2_queue);
@@ -154,67 +239,93 @@ static void hispi_buf_queue(struct vb2_buffer *vb)
 	addr = vb2_dma_contig_plane_dma_addr(vb, 0);
 	size = vb2_get_plane_payload(vb, 0);
 
-	xt = kzalloc(sizeof(struct dma_async_tx_descriptor) +
+	/*xt = kzalloc(sizeof(struct dma_async_tx_descriptor) +
+                                sizeof(struct data_chunk), GFP_KERNEL);*/
+        /*if (!xt) {
+                vb2_buffer_done(vb, VB2_BUF_STATE_ERROR);
+                return;
+        }*/
+
+	/* If internal transfers are not running */
+	if(!channel->internal_streaming) {
+		/* set internal video transfers */
+		channel->internal_streaming = 1;
+		internal_dst = channel->internal_buffer_base + channel->current_write_buffer*size;
+
+		xt = kzalloc(sizeof(struct dma_async_tx_descriptor) +
                                 sizeof(struct data_chunk), GFP_KERNEL);
-        if (!xt) {
-                vb2_buffer_done(vb, VB2_BUF_STATE_ERROR);
-                return;
-        }
 
-	/* configure xilinx specific DMA */
-	/*xconf.frm_dly = 0;
-	xconf.park = 1;
-	xconf.park_frm = 0;
+		xt->dst_start = internal_dst;
+		xt->src_inc = false;
+		xt->dst_inc = true;
+		xt->src_sgl = false;
+		xt->dst_sgl = true;
+		xt->frame_size = 1;
+		xt->numf = channel->video_y;
+		xt->sgl[0].size = channel->video_x * channel->bpp;
+		xt->sgl[0].icg = 0;
+		xt->dir = DMA_DEV_TO_MEM;
 
-	xilinx_vdma_channel_set_config(channel->dma, &xconf);*/
+		printk(KERN_ERR"Internal VDMA addr is: 0x%08x, size = %ld\n", internal_dst, size);
 
-	xt->dst_start = addr;
-	xt->src_inc = false;
-	xt->dst_inc = true;
-	xt->src_sgl = false;
-	xt->dst_sgl = true;
-	xt->frame_size = 1;
-	xt->numf = channel->video_y;
-	xt->sgl[0].size = channel->video_x * channel->bpp;
-	xt->sgl[1].icg = 0;
-	xt->dir = DMA_DEV_TO_MEM;
+		desc = dmaengine_prep_interleaved_dma(channel->dma, xt, DMA_PREP_INTERRUPT);
+		kfree(xt);
+		if (!desc) {
+			printk(KERN_ERR"vdma desc prepare error \n");
+                	//vb2_buffer_done(vb, VB2_BUF_STATE_ERROR);
+	                return;
+	        }
 
-	printk(KERN_ERR"DMA addr is: 0x%08x, size = %ld\n", addr, size);
+		desc->callback = hispi_internal_vdma_done;
+	        desc->callback_param = channel;
 
-	desc = dmaengine_prep_interleaved_dma(channel->dma, xt, DMA_PREP_INTERRUPT);
-	kfree(xt);
-	if (!desc) {
-		printk(KERN_ERR"desc prepare error \n");
-                vb2_buffer_done(vb, VB2_BUF_STATE_ERROR);
-                return;
-        }
+		cookie = dmaengine_submit(desc);
+		if (cookie < 0) {
+			printk(KERN_ERR"vdma engine submit error \n");
+			//vb2_buffer_done(vb, VB2_BUF_STATE_ERROR);
+			return;
+		}
+		/* start internal transfer */
+		dma_async_issue_pending(channel->dma);
+	}
+
+	/* prepare DMA transfer from video memory to RAM */
+	internal_src = channel->internal_buffer_base + channel->current_read_buffer*size;
+	desc=channel->preview_dma->device->device_prep_dma_memcpy(channel->preview_dma, addr, internal_src, size, DMA_CTRL_ACK | DMA_PREP_INTERRUPT);
+
+	if(!desc) {
+
+		printk(KERN_ERR"dma desc prepare error \n");
+		vb2_buffer_done(vb, VB2_BUF_STATE_ERROR);
+		return;
+	}
 
 	desc->callback = hispi_dma_done;
-        desc->callback_param = buf;
+	desc->callback_param = buf;
 
-	cookie = dmaengine_submit(desc);
-	if (cookie < 0) {
+	cookie = desc->tx_submit(desc);
+	if(cookie < 0) {
 		printk(KERN_ERR"dma engine submit error \n");
 		vb2_buffer_done(vb, VB2_BUF_STATE_ERROR);
 		return;
 	}
-	
+
 	spin_lock_irqsave(&channel->spinlock, flags);
         list_add_tail(&buf->head, &channel->queued_buffers);
         spin_unlock_irqrestore(&channel->spinlock, flags);
-	
+
 	if (vb2_is_streaming(vb->vb2_queue)) {
-		printk(KERN_ERR"We're streaming ... \n");
-                dma_async_issue_pending(channel->dma);
+		//printk(KERN_ERR"We're streaming ... \n");
+                dma_async_issue_pending(channel->preview_dma);
 	}
-	
+
 }
 
 static int hispi_start_streaming(struct vb2_queue *q, unsigned int count)
 {
 	struct sensor_channel *channel = vb2_get_drv_priv(q);
 	ENTER();
-	dma_async_issue_pending(channel->dma);
+	dma_async_issue_pending(channel->preview_dma);
 	return 0;
 }
 
@@ -225,7 +336,9 @@ static void hispi_stop_streaming(struct vb2_queue *q)
 	unsigned long flags;
 
 	ENTER();
-	dmaengine_terminate_all(channel->dma); 
+	dmaengine_terminate_all(channel->preview_dma);
+	dmaengine_terminate_all(channel->dma);
+	channel->internal_streaming = 0;
 
 	spin_lock_irqsave(&channel->spinlock, flags);
 
@@ -294,10 +407,10 @@ static int hispi_enum_fmt_vid_cap(struct file *file, void *priv_fh,
 {
 	ENTER();
 	printk(KERN_ERR"index[%d] = %s \n", f->index, f->description);
-	
+
 	if(f->index == 0) {
-		strlcpy(f->description, "GREY", sizeof(f->description));
-		f->pixelformat = /*V4L2_PIX_FMT_UYVY;*/V4L2_PIX_FMT_GREY;//V4L2_PIX_FMT_SBGGR8;
+		strlcpy(f->description, "BA81", sizeof(f->description));
+		f->pixelformat = /*V4L2_PIX_FMT_UYVY;*/V4L2_PIX_FMT_GREY;/*V4L2_PIX_FMT_SBGGR8;*/
 	}
 	else return -EINVAL;
 	return 0;
@@ -315,20 +428,12 @@ static int hispi_g_fmt_vid_cap(struct file *file, void *priv_fh,
 	pix->height = channel->video_y;
 	pix->bytesperline = channel->video_x * channel->bpp;
 	pix->colorspace = /*V4L2_COLORSPACE_SMPTE170M;*/V4L2_COLORSPACE_SRGB;//V4L2_COLORSPACE_REC709;
-	pix->pixelformat = /*V4L2_PIX_FMT_UYVY;*/V4L2_PIX_FMT_GREY;//V4L2_PIX_FMT_SBGGR8;
+	pix->pixelformat = /*V4L2_PIX_FMT_UYVY;*/V4L2_PIX_FMT_GREY;/*V4L2_PIX_FMT_SBGGR8;*/
 	pix->sizeimage =  pix->bytesperline * pix->height;
 	pix->field = V4L2_FIELD_NONE;
 
 	return 0;
 }
-
-#define ANTYMAKRO(a, str) do{	\
-       	str[0]=a&0xff;		\
-       	str[1]=(a>>8)&0xff;	\
-       	str[2]=(a>>16)&0xff;	\
-       	str[3]=(a>>24)&0xff;	\
-	str[4]='\0';		\
-	}while(0)
 
 static int hispi_try_fmt_vid_cap(struct file *file, void *priv_fh,
         struct v4l2_format *f)
@@ -336,43 +441,16 @@ static int hispi_try_fmt_vid_cap(struct file *file, void *priv_fh,
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 	struct hispi_priv_data *priv = video_drvdata(file);
 	struct sensor_channel *channel = &priv->channel;
-	char format[5];
 	ENTER();
 
-#if 0
-	printk(KERN_ERR">>>>>>>>>>");
-	ANTYMAKRO(pix->pixelformat, format);
-	printk(KERN_ERR"width = %d\n", pix->width);
-	printk(KERN_ERR"height = %d\n", pix->height);
-	printk(KERN_ERR"colorspace = %d\n", pix->colorspace);
-	printk(KERN_ERR"pixelformat = %s\n", format);
-	printk(KERN_ERR"bytesperline = %d\n", pix->bytesperline);
-	printk(KERN_ERR"sizeimage = %d\n", pix->sizeimage);
-	printk(KERN_ERR"field = %d\n", pix->field);
-	printk(KERN_ERR"priv = %d\n", pix->priv);
-#endif 
-	//pix->width = channel->video_x;
-	//pix->height = channel->video_y;
 	v4l_bound_align_image(&pix->width, 176, MAX_X, 0, &pix->height, 144,
 			                MAX_Y, 0, 0);
-	pix->colorspace = /*V4L2_COLORSPACE_SMPTE170M;*//*V4L2_COLORSPACE_JPEG;*/V4L2_COLORSPACE_SRGB;
-	pix->pixelformat = /*V4L2_PIX_FMT_UYVY;*/V4L2_PIX_FMT_GREY;
-	pix->bytesperline = /*channel->video_x*/pix->width * channel->bpp;
+	pix->colorspace = V4L2_COLORSPACE_SRGB;
+	pix->pixelformat = V4L2_PIX_FMT_GREY;
+	pix->bytesperline = pix->width * channel->bpp;
 	pix->sizeimage =  pix->bytesperline * pix->height;
 	pix->field = V4L2_FIELD_NONE;
 	pix->priv = 0;
-#if 0
-	printk(KERN_ERR"<<<<<<<<<<<");
-	ANTYMAKRO(pix->pixelformat, format);
-	printk(KERN_ERR"width = %d\n", pix->width);
-	printk(KERN_ERR"height = %d\n", pix->height);
-	printk(KERN_ERR"colorspace = %d\n", pix->colorspace);
-	printk(KERN_ERR"pixelformat = %s\n", format);
-	printk(KERN_ERR"bytesperline = %d\n", pix->bytesperline);
-	printk(KERN_ERR"sizeimage = %d\n", pix->sizeimage);
-	printk(KERN_ERR"field = %d\n", pix->field);
-	printk(KERN_ERR"priv = %d\n", pix->priv);
-#endif
 	return 0;
 }
 
@@ -391,81 +469,23 @@ static int hispi_enum_input(struct file *file, void *priv_fh,
 	if (inp->index == 0) {
 		snprintf(inp->name, sizeof(inp->name), "HiSpi sensor");
 		inp->type = V4L2_INPUT_TYPE_CAMERA;
-		//inp->capabilities = V4L2_IN_CAP_DV_TIMINGS;
 		inp->std = V4L2_STD_UNKNOWN;
 	} else return -EINVAL;
 	return 0;
 }
 
-static int hispi_s_dv_timings(struct file *file, void *priv_fh,
-        struct v4l2_dv_timings *timings)
-{
-	ENTER();
-	return 0;
-}
-
-static int hispi_g_dv_timings(struct file *file, void *priv_fh,
-        struct v4l2_dv_timings *timings)
-{
-	ENTER();
-	return 0;
-}
-
-static int hispi_enum_dv_timings(struct file *file, void *priv_fh,
-        struct v4l2_enum_dv_timings *timings)
-{
-	ENTER();
-	return 0;
-}
-
-static int hispi_query_dv_timings(struct file *file, void *priv_fh,
-        struct v4l2_dv_timings *timings)
-{
-	ENTER();
-	return 0;
-}
-
-static int hispi_dv_timings_cap(struct file *file, void *priv_fh,
-        struct v4l2_dv_timings_cap *cap)
-{
-	ENTER();
-	return 0;
-}
-
 static int hispi_g_input(struct file *file, void *priv_fh, unsigned int *i)
 {
-	struct video_device *video = video_devdata(file);
 	ENTER();
 	/* set 0 input */
 	//TODO: handle two inputs
 	*i = 0;
-
-	//video->tvnorms = V4L2_STD_PAL;
 	return 0;
 }
 
 static int hispi_s_input(struct file *file, void *priv_fh, unsigned int i)
 {
 	ENTER();
-	return 0;
-}
-
-static int hispi_querystd(struct file *file, void *priv, v4l2_std_id *std_id)
-{
-	ENTER();
-	return 0;
-}
-
-static int hispi_s_std(struct file *file, void *priv, v4l2_std_id std_id)
-{
-	ENTER();
-	return 0;
-}
-
-static int hispi_g_std(struct file *file, void *priv, v4l2_std_id *tvnorm)
-{
-	ENTER();
-	//*tvnorm = V4L2_STD_PAL;
 	return 0;
 }
 
@@ -482,20 +502,6 @@ static const struct v4l2_ioctl_ops hispi_ioctl_ops = {
         .vidioc_s_fmt_vid_cap           = hispi_s_fmt_vid_cap,
         .vidioc_try_fmt_vid_cap         = hispi_try_fmt_vid_cap,
 
-	//.vidioc_g_fmt_vid_out    	= hispi_g_fmt_vid_cap,
-        //.vidioc_s_fmt_vid_out    	= hispi_s_fmt_vid_cap,
-        //.vidioc_try_fmt_vid_out  	= hispi_try_fmt_vid_cap,
-        //.vidioc_enum_fmt_vid_out 	= hispi_enum_fmt_vid_cap,
-
-	//.vidioc_querystd         	= hispi_querystd,
-        //.vidioc_s_std            	= hispi_s_std,
-        //.vidioc_g_std            	= hispi_g_std,
-
-        //.vidioc_s_dv_timings            = hispi_s_dv_timings,
-        //.vidioc_g_dv_timings            = hispi_g_dv_timings,
-        //.vidioc_query_dv_timings        = hispi_query_dv_timings,
-        //.vidioc_enum_dv_timings         = hispi_enum_dv_timings,
-        //.vidioc_dv_timings_cap          = hispi_dv_timings_cap,
         .vidioc_subscribe_event         = v4l2_ctrl_subscribe_event,
         .vidioc_unsubscribe_event       = v4l2_event_unsubscribe,
         .vidioc_create_bufs             = vb2_ioctl_create_bufs,
@@ -505,92 +511,6 @@ static const struct v4l2_ioctl_ops hispi_ioctl_ops = {
         .vidioc_qbuf                    = vb2_ioctl_qbuf,
         .vidioc_dqbuf                   = vb2_ioctl_dqbuf,
 };
-
-
-
-struct hispi_priv_data *priv_data;
-
-static void hispi_stop_dma(struct hispi_priv_data *private)
-{
-	dmaengine_terminate_all(private->channel.dma);
-}
-
-static int hispi_start_dma(struct hispi_priv_data *private)
-{
-	struct dma_async_tx_descriptor *desc;
-	struct sensor_channel *channel = &private->channel;
-
-	ENTER();
-	dmaengine_terminate_all(private->channel.dma);
-	
-	//private->dma_config.hsize = channel->video_x * channel->bpp;
-	//private->dma_config.vsize = channel->video_y;
-	//private->dma_config.stride = channel->video_x * channel->bpp; 
-
-	dmaengine_device_control(private->channel.dma, DMA_SLAVE_CONFIG, (unsigned long)&private->dma_config);
-
-	desc = dmaengine_prep_slave_single(private->channel.dma, private->video_buffer, channel->video_x * channel->bpp * channel->video_y, DMA_DEV_TO_MEM, 0);
-	if (!desc) {
-		pr_err("Descriptor prep error\n");
-		return -ENOMEM;
-	} else {
-		dmaengine_submit(desc);
-		dma_async_issue_pending(private->channel.dma);
-	}
-	return 0;	
-}
-
-static int hispi_open(struct inode *inode, struct file *file)
-{
-	file->private_data = (void*)priv_data;
-	return 0;
-}
-static int hispi_close(struct inode *inode, struct file *file)
-{
-	file->private_data = NULL;
-	return 0;
-}
-static ssize_t hispi_read(struct file *file, char __user *buffer, size_t length, loff_t *offset)
-{
-	struct hispi_priv_data *priv;
-	int ret;
-	priv = (struct hispi_priv_data *) file->private_data;
-
-	if(copy_to_user((void*)buffer, priv->buffer_virt, length) != 0)	ret = -EFAULT;
-	else ret = length;
-
-	return length;
-}
-static ssize_t hispi_write(struct file *file, const char __user *buffer, size_t length, loff_t *offset)
-{
-	return 0;
-}
-static long hispi_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
-{
-	struct hispi_priv_data *priv;
-	int ret;
-	priv = (struct hispi_priv_data *) file->private_data;
-	ENTER();
-	switch (ioctl_num)
-	{
-		case HISPI_START_STREAM:
-			if( (ret = hispi_start_dma(priv)) < 0) return ret;
-			break;
-		case HISPI_STOP_STREAM:
-			hispi_stop_dma(priv);
-			break;
-		default:
-			return -EINVAL;
-	}
-	return 0;
-}
-
-struct file_operations fops = {
-                                .read = hispi_read,
-                                .write = hispi_write,
-                                .unlocked_ioctl = hispi_ioctl,
-                                .open = hispi_open,
-                                .release = hispi_close,};
 
 static int hispi_register_video_dev(struct hispi_priv_data *private)
 {
@@ -637,6 +557,7 @@ static int hispi_probe(struct platform_device *pdev)
 	struct resource *res;
 	unsigned int reg;
 	int ret;
+	int err;
 
 	ENTER();
 	private = devm_kzalloc(&pdev->dev, sizeof(*private), GFP_KERNEL);
@@ -667,20 +588,29 @@ static int hispi_probe(struct platform_device *pdev)
 
 	printk(KERN_ERR"Going to request channel \n");
 	private->channel.dma = dma_request_slave_channel(&pdev->dev, "video");
-        if (private->channel.dma == NULL) 
+        if (private->channel.dma == NULL)
                 return -EPROBE_DEFER;
 
-	if ( (ret = register_chrdev(HISPI_MAJOR_NUMBER, DEVICE_NAME, &fops)) <0) {
-		printk(KERN_ERR"chrdev registration failed\n");
-		return ret;		
+	printk(KERN_ERR"Going to request preview channel \n");
+	private->channel.preview_dma = dma_request_slave_channel(&pdev->dev, "preview");
+	if (private->channel.dma == NULL) {
+		dma_release_channel(private->channel.dma);
+		return -EPROBE_DEFER;
 	}
+
+	if( (err = of_property_read_u32(pdev->dev.of_node, "ant,video-mem-base", (u32*)&(channel->internal_buffer_base))) ) return err;
+	/* set default values */
+	channel->current_write_buffer = 0;
+	channel->current_read_buffer = 1;
+	channel->internal_streaming = 0;
 
 	channel->video_x = MAX_X;
 	channel->video_y = MAX_Y;
 	channel->bpp = BPP / 8;
 
+	mutex_init(&channel->internal_lock);
+
 	platform_set_drvdata(pdev, private);
-	priv_data = private;
 
 	channel->alloc_ctx = vb2_dma_contig_init_ctx(&pdev->dev);
 	if (IS_ERR(channel->alloc_ctx)) {
@@ -688,7 +618,6 @@ static int hispi_probe(struct platform_device *pdev)
 		printk(KERN_ERR"Failed to init ctx \n");
 		return -ret;
 	}
-
 	video_set_drvdata(&private->channel.vdev, private);
 
 	ret = v4l2_device_register(&pdev->dev, &private->v4l2_dev);
@@ -703,20 +632,12 @@ static int hispi_probe(struct platform_device *pdev)
 		return -ret;
 	}
 
-	/* set the markers */
-	/*reg = (SOF_MARKER_REV << MARKER_HI_SHIFT) | SOL_MARKER_REV;
-	hispi_write_reg(private, MARKERS1_REG, reg);
-
-	reg = hispi_read_reg(private, MARKERS1_REG);
-	printk(KERN_ERR"MARKERS1 = 0x%08x \n", reg);
-
-	reg = (EOF_MARKER_REV << MARKER_HI_SHIFT) | EOL_MARKER_REV;
-	hispi_write_reg(private, MARKERS2_REG, reg);
-
-	reg = hispi_read_reg(private, MARKERS2_REG);
-	printk(KERN_ERR"MARKERS2 = 0x%08x \n", reg);*/
 	/* enable hardware */
 	hispi_write_reg(private, CTRL_REG, ENABLE_BIT);
+
+	msleep(100);
+	reg = hispi_read_reg(private, STATUS_REG);
+	printk(KERN_ERR"Sensor is %ssynced\n", reg?"":"not ");
 	return 0;
 }
 
@@ -725,8 +646,6 @@ static int hispi_remove(struct platform_device *pdev)
 	struct hispi_priv_data *private = (struct hispi_priv_data*)pdev->dev.driver_data;
 	struct sensor_channel *channel = &private->channel;
 	ENTER();
-	unregister_chrdev(HISPI_MAJOR_NUMBER, DEVICE_NAME);
-
 	/* disable hw */
 	hispi_write_reg(private, CTRL_REG, 0);
 	//v4l2_async_notifier_unregister(&private->notifier);
@@ -737,6 +656,8 @@ static int hispi_remove(struct platform_device *pdev)
 
 	if(private->channel.dma)
 		dma_release_channel(private->channel.dma);
+	if(private->channel.preview_dma)
+		dma_release_channel(private->channel.preview_dma);
 	return 0;
 }
 

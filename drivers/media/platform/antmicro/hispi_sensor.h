@@ -14,7 +14,10 @@ struct sensor_channel {
         struct video_device vdev;
         struct mutex lock;
         spinlock_t spinlock;
+	/* internal video dma */
         struct dma_chan *dma;
+	/* preview dma */
+	struct dma_chan *preview_dma;
     
         struct vb2_alloc_ctx *alloc_ctx;
         uint32_t video_x;
@@ -22,6 +25,15 @@ struct sensor_channel {
         uint32_t bpp;
 
 	struct list_head queued_buffers;
+
+	/* internal video memory handling */
+	struct mutex internal_lock;
+	uint8_t flip_buffers;
+	uint8_t internal_streaming;
+	dma_addr_t internal_buffer_base;
+	uint32_t current_write_buffer;
+	uint32_t current_read_buffer;
+
 };
 
 struct hispi_priv_data {
@@ -49,6 +61,7 @@ struct hispi_buffer {
 #define MARKERS2_REG	0x10
 
 #define ENABLE_BIT	(1<<0)
+#define SYNCED_BIT	(1<<0)
 #define MARKER_MASK	0x3FF
 #define MARKER_HI_SHIFT 16
 
@@ -62,5 +75,8 @@ struct hispi_buffer {
 #define SOL_MARKER_REV	0x200
 #define EOF_MARKER_REV	0x280
 #define EOL_MARKER_REV	0x380
+
+/* fcn defs */
+static void hispi_internal_vdma_done(void *arg);
 
 #endif
