@@ -37,7 +37,9 @@ static int axi_dispctrl_crtc_update(struct drm_crtc *crtc)
 	struct drm_display_mode *mode = &crtc->mode;
 	struct drm_framebuffer *fb = crtc->primary->fb;
 	struct dma_async_tx_descriptor *desc;
+	struct dma_interleaved_template *xt;
 	struct drm_gem_cma_object *obj;
+	struct xilinx_vdma_config xconf;
 	size_t offset;
 
 	if (!mode || !fb)
@@ -50,19 +52,38 @@ static int axi_dispctrl_crtc_update(struct drm_crtc *crtc)
 		if (!obj)
 			return -EINVAL;
 
-		axi_dispctrl_crtc->dma_config.hsize = mode->hdisplay * fb->bits_per_pixel / 8;
-		axi_dispctrl_crtc->dma_config.vsize = mode->vdisplay;
-		axi_dispctrl_crtc->dma_config.stride = fb->pitches[0];
-		
-		dmaengine_device_control(axi_dispctrl_crtc->dma, DMA_SLAVE_CONFIG,
-			(unsigned long)&axi_dispctrl_crtc->dma_config);
+		xt = kzalloc(sizeof(struct dma_async_tx_descriptor) +
+			                                sizeof(struct data_chunk), GFP_KERNEL);
+	        if (!xt){
+			return -ENOMEM;
+		}
 
 		offset = crtc->x * fb->bits_per_pixel / 8 + crtc->y * fb->pitches[0];
 
-		desc = dmaengine_prep_slave_single(axi_dispctrl_crtc->dma,
+		/* configure xilinx spacific DMA */
+		xconf.frm_dly = 0;
+		xconf.park = 1;
+		xconf.park_frm = 0;
+
+		xilinx_vdma_channel_set_config(axi_dispctrl_crtc->dma, &xconf);
+
+	        xt->src_start = obj->paddr + offset;
+	        xt->src_inc = false;
+	        xt->dst_inc = true;
+	        xt->src_sgl = false;
+	        xt->dst_sgl = true;
+	        xt->frame_size = 1;
+	        xt->numf = mode->vdisplay;
+	        xt->sgl[0].size = mode->hdisplay * fb->bits_per_pixel / 8;
+	        xt->sgl[0].icg = 0;
+	        xt->dir = DMA_MEM_TO_DEV;	
+
+		desc = dmaengine_prep_interleaved_dma(axi_dispctrl_crtc->dma, xt, DMA_PREP_INTERRUPT);
+		kfree(xt);
+		/*desc = dmaengine_prep_slave_single(axi_dispctrl_crtc->dma,
 					obj->paddr + offset,
 					mode->vdisplay * fb->pitches[0],
-					DMA_MEM_TO_DEV, 0);
+					DMA_MEM_TO_DEV, 0);*/
 		if (!desc) {
 			pr_err("Failed to prepare DMA descriptor\n");
 			return -ENOMEM;
