@@ -4,3 +4,9 @@ config ANTMICRO_HISPI_INTERFACE
         default m
         ---help---
           HiSpi interface support driver.
+
+config ANTMICRO_STEREO_VISION
+        tristate "Antmicro stereo vision ipcore support"
+        default m
+        ---help---
+          Stereo Vision IPCore driver.
