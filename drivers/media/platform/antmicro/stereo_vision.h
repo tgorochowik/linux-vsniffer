@@ -4,15 +4,18 @@
 #define DEVICE_NAME "Stereo Vision"
 #define INTERFACE_MAJOR_NUMBER 95
 
-#define FRAME_X 640
-#define FRAME_Y 480
+//#define FRAME_X 640
+//#define FRAME_Y 480
+#define FRAME_X 320
+#define FRAME_Y 240
 #define BPP 1
 
 #define BUFFERS_COUNT 3
 
 struct internal_dma {
 	struct dma_chan *dma;
-	struct mutex lock;
+	//struct mutex lock;
+        spinlock_t lock;
 	uint8_t flip_buffers;
 	uint8_t current_write_buffer;
 	uint8_t current_read_buffer;

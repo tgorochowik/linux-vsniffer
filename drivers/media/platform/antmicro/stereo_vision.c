@@ -17,7 +17,8 @@
 
 #include "stereo_vision.h"
 
-#define ENTER() printk(KERN_ERR"Entering %s @ %d\n", __func__, __LINE__)
+//#define ENTER() printk(KERN_ERR"Entering %s @ %d\n", __func__, __LINE__)
+#define ENTER()
 
 static struct stereo_vision_private *priv_data;
 
@@ -130,38 +131,45 @@ static inline uint32_t get_unused_buffer(struct internal_dma *channel)
 static void left_dma_done(void *arg)
 {
 	struct stereo_vision_private* private = (struct stereo_vision_private*)arg;
-	mutex_lock(&private->dma_internal_left.lock);
+        unsigned int flags;
+        
+        
+	spin_lock_irqsave(&private->dma_internal_left.lock, flags);
 	/* find unused buffer */
 	if(private->dma_internal_left.flip_buffers) {
 		private->dma_internal_left.current_read_buffer = get_unused_buffer(&private->dma_internal_left);
 		private->dma_internal_left.flip_buffers = 0;
 	}
-	mutex_unlock(&private->dma_internal_left.lock);
+	spin_unlock_irqrestore(&private->dma_internal_left.lock, flags);
 	setup_internal_transfer(private, TRANSFER_LEFT);
 }
 
 static void right_dma_done(void *arg)
 {
 	struct stereo_vision_private* private = (struct stereo_vision_private*)arg;
-	mutex_lock(&private->dma_internal_right.lock);
+        unsigned int flags;
+        
+	spin_lock_irqsave(&private->dma_internal_right.lock, flags);
 	/* find unused buffer */
 	if(private->dma_internal_right.flip_buffers) {
 		private->dma_internal_right.current_read_buffer = get_unused_buffer(&private->dma_internal_right);
 		private->dma_internal_right.flip_buffers = 0;
 	}
-	mutex_unlock(&private->dma_internal_right.lock);
+	spin_unlock_irqrestore(&private->dma_internal_right.lock, flags);
 	setup_internal_transfer(private, TRANSFER_RIGHT);
 }
 
 static void out_dma_done(void *arg)
 {
 	struct stereo_vision_private* private = (struct stereo_vision_private*)arg;
+        unsigned int flags;
+        
 	//ENTER();
-	mutex_lock(&private->dma_internal_out.lock);
+	spin_lock_irqsave(&private->dma_internal_out.lock, flags);
 	/* find unused buffer */
 	private->dma_internal_out.current_write_buffer = get_unused_buffer(&private->dma_internal_out);
 	private->dma_internal_out.flip_buffers = 1;
-	mutex_unlock(&private->dma_internal_out.lock);
+	spin_unlock_irqrestore(&private->dma_internal_out.lock, flags);
 	/* setup next transfer */
 	setup_internal_transfer(private, TRANSFER_OUT);
 }
@@ -188,6 +196,7 @@ static ssize_t stereo_read(struct file *file, char __user *buffer, size_t length
 	struct stereo_vision_private *private = file->private_data;
 	uint32_t size;
 	uint32_t out_buffer;
+        unsigned long flags;
 	ENTER();
 
 	size = private->frame_x*private->frame_y*private->bpp;
@@ -195,12 +204,12 @@ static ssize_t stereo_read(struct file *file, char __user *buffer, size_t length
 		printk(KERN_ERR"whole frame should be read at once\n");
 		return -EINVAL;
 	}
-	mutex_lock(&private->dma_internal_out.lock);
+	spin_lock_irqsave(&private->dma_internal_out.lock, flags);
 	if(private->dma_internal_out.flip_buffers) {
 		private->dma_internal_out.current_read_buffer = get_unused_buffer(&private->dma_internal_out);
 		private->dma_internal_out.flip_buffers = 0;
 	}
-	mutex_unlock(&private->dma_internal_out.lock);
+	spin_unlock_irqrestore(&private->dma_internal_out.lock, flags);
 	out_buffer = (uint32_t)private->out_buf_base + private->dma_internal_out.current_read_buffer*size;
 
 	if( copy_to_user((void*)buffer, (void*)(out_buffer), size) != 0 )
@@ -213,6 +222,7 @@ static ssize_t stereo_write(struct file *file, const char __user *buffer, size_t
 	struct stereo_vision_private *private = file->private_data;
 	uint32_t size;
 	uint32_t in_buffer;
+        unsigned long flags;
 	ENTER();
 
 	size = private->frame_x*private->frame_y*private->bpp;
@@ -221,16 +231,16 @@ static ssize_t stereo_write(struct file *file, const char __user *buffer, size_t
 		return -EINVAL;
 	}
 	if(private->next_transfer_target == TRANSFER_LEFT) {
-		mutex_lock(&private->dma_internal_left.lock);
+		spin_lock_irqsave(&private->dma_internal_left.lock, flags);
 		private->dma_internal_left.current_write_buffer = get_unused_buffer(&private->dma_internal_left);
 		private->dma_internal_left.flip_buffers = 1;
-		mutex_unlock(&private->dma_internal_left.lock);
+		spin_unlock_irqrestore(&private->dma_internal_left.lock, flags);
 		in_buffer = (uint32_t)private->left_buf_base + private->dma_internal_left.current_write_buffer*size;
 	} else if(private->next_transfer_target == TRANSFER_RIGHT) {
-		mutex_lock(&private->dma_internal_right.lock);
+		spin_lock_irqsave(&private->dma_internal_right.lock, flags);
 		private->dma_internal_right.current_write_buffer = get_unused_buffer(&private->dma_internal_right);
 		private->dma_internal_right.flip_buffers = 1;
-		mutex_unlock(&private->dma_internal_right.lock);
+		spin_unlock_irqrestore(&private->dma_internal_right.lock, flags);
 		in_buffer = (uint32_t)private->right_buf_base + private->dma_internal_right.current_write_buffer*size;
 	} else {
 		printk(KERN_ERR"Target buffer must be choosen before writing\n");
@@ -340,9 +350,14 @@ static int stereo_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 	/* init mutexes */
-	mutex_init(&private->dma_internal_left.lock);
+	/*mutex_init(&private->dma_internal_left.lock);
 	mutex_init(&private->dma_internal_right.lock);
 	mutex_init(&private->dma_internal_out.lock);
+	*/
+        #define SPIN_LOCK_UNLOCKED      (spinlock_t) { 0, 0 }
+        private->dma_internal_left.lock = SPIN_LOCK_UNLOCKED;
+        private->dma_internal_right.lock = SPIN_LOCK_UNLOCKED;
+        private->dma_internal_out.lock = SPIN_LOCK_UNLOCKED;
 	/* set some defaults */
 	private->frame_x = FRAME_X;
 	private->frame_y = FRAME_Y;
