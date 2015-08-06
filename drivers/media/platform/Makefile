@@ -53,6 +53,7 @@ obj-y	+= davinci/
 obj-$(CONFIG_ARCH_OMAP)	+= omap/
 
 obj-$(CONFIG_VIDEO_XILINX)		+= xilinx/
+obj-$(CONFIG_VIDEO_SNIFFER)		+= video-sniffer/
 
 obj-y					+= antmicro/
 

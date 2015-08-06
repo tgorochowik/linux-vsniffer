@@ -1,0 +1,5 @@
+config VIDEO_SNIFFER
+        tristate "Video Sniffer"
+        default m
+        ---help---
+          Driver for the Video Sniffer IP.
