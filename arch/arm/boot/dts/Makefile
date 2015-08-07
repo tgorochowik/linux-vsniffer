@@ -472,7 +472,9 @@ dtb-$(CONFIG_ARCH_ZYNQ) += \
 	zynq-zc770-xm011.dtb \
 	zynq-zc770-xm012.dtb \
 	zynq-zc770-xm013.dtb \
-	zynq-zed.dtb
+	zynq-zed.dtb \
+	zynq-video-sniffer.dtb \
+	zynq-video-sniffer-zed.dtb
 dtb-$(CONFIG_MACH_ARMADA_370) += \
 	armada-370-db.dtb \
 	armada-370-mirabox.dtb \
