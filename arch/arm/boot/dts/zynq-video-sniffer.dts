@@ -51,7 +51,7 @@
 				compatible = "vsniff,video-sniffer-data";
 				reg = <0x7a200000 0x10000>;
 				dmas = <&vsniffdatavdma 0x1>;
-				dma-names = "video";
+				dma-names = "captured-video";
 			};
 		};
 	};

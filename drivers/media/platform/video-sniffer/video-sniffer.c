@@ -219,7 +219,7 @@ static int vsniff_probe(struct platform_device *pdev) {
 	       private->buffer_virt, private->buffer_phys);
 
 	/* Request DMA channel */
-	private->dma = dma_request_slave_channel(&pdev->dev, "video");
+	private->dma = dma_request_slave_channel(&pdev->dev, "captured-video");
 
 	/* Xilinx DMA driver might be not initialized yet - defer if failed */
 	RPT();
