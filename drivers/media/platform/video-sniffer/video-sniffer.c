@@ -228,9 +228,9 @@ static int vsniff_probe(struct platform_device *pdev) {
 	RPT();
 
 	/* Initialize image parameters */
-	private->image_x = 800;
-	private->image_y = 600;
-	private->image_bpp = 32;
+	private->image_x = VSNIFF_MAX_X;
+	private->image_y = VSNIFF_MAX_Y;
+	private->image_bpp = VSNIFF_BPP;
 
 	/* Initialize chrdev driver */
 	vsniff_chrdev_is_open = 0;
