@@ -35,15 +35,12 @@
 
 #include "video-sniffer.h"
 
-#define RPT()	printk(KERN_ERR"%s:%d\n",__func__,__LINE__)
-
 /* Global variables for chrdev */
 static int vsniff_chrdev_is_open;
 static struct vsniff_private_data *private;
 
 static int vsniff_chrdev_open(struct inode *inode, struct file *file)
 {
-	RPT();
 	if (vsniff_chrdev_is_open)
 		return -EBUSY;
 
@@ -55,7 +52,6 @@ static int vsniff_chrdev_open(struct inode *inode, struct file *file)
 
 static int vsniff_chrdev_release(struct inode *inode, struct file *file)
 {
-	RPT();
 	vsniff_chrdev_is_open--;
 	module_put(THIS_MODULE);
 
@@ -64,7 +60,6 @@ static int vsniff_chrdev_release(struct inode *inode, struct file *file)
 
 static void vsniff_chrdev_dma_transfer_done(void *arg)
 {
-	RPT();
 	complete((struct completion*)arg);
 }
 
@@ -99,7 +94,6 @@ static ssize_t vsniff_chrdev_read(struct file *file, char *buffer,
 		xt = kzalloc(sizeof(struct dma_async_tx_descriptor) +
 			     sizeof(struct data_chunk), GFP_KERNEL);
 
-		RPT();
 		xt->dst_start = private->buffer_phys;
 		xt->src_inc = false;
 		xt->dst_inc = true;
@@ -113,14 +107,12 @@ static ssize_t vsniff_chrdev_read(struct file *file, char *buffer,
 
 		desc = dmaengine_prep_interleaved_dma(private->dma, xt,
 						      DMA_PREP_INTERRUPT);
-		RPT();
 		kfree(xt);
 		if (!desc) {
 			printk(KERN_ERR "Internal VDMA error\n");
 			return -EIO;
 		}
 
-		RPT();
 		/* Register dma callback */
 		desc->callback = vsniff_chrdev_dma_transfer_done;
 
@@ -130,37 +122,23 @@ static ssize_t vsniff_chrdev_read(struct file *file, char *buffer,
 		/* Register callback param */
 		desc->callback_param = &dma_transfer_complete;
 
-		RPT();
 		/* Submit the prepared transfer */
 		cookie = dmaengine_submit(desc);
 		if (cookie < 0) {
 			printk(KERN_ERR "Internal VDMA error \n");
 			return -EIO;
 		}
-		RPT();
 
 		/* Start internal transfer */
 		dma_async_issue_pending(private->dma);
-		RPT();
 
 		/* Wait until the transfer is done */
 		if (!wait_for_completion_timeout(&dma_transfer_complete,
 						 msecs_to_jiffies(2000)))
 			return -ETIMEDOUT;
 
-		RPT();
 		/* Terminate transfer */
 		dmaengine_terminate_all(private->dma);
-
-		/* Print the first part */
-		int i;
-		uint8_t *buf = private->buffer_virt;
-		for (i = 0; i < 128; i++) {
-			printk(KERN_ERR "%02x ", buf[i] & 0xFF);
-			if ((i + 1) % 8==0)
-				printk(KERN_ERR "\n");
-		}
-		printk(KERN_ERR "\n");
 	}
 
 	/* Copy the data to user */
@@ -181,7 +159,6 @@ struct file_operations vsniff_chrdev_fops = {
 };
 
 static int vsniff_probe(struct platform_device *pdev) {
-	RPT();
 	struct resource *resource;
 	int result;
 
@@ -215,17 +192,13 @@ static int vsniff_probe(struct platform_device *pdev) {
 
 	/* Translate addresses */
 	private->buffer_phys = (dma_addr_t)virt_to_phys(private->buffer_virt);
-	printk(KERN_INFO "Translated buffer address, virt = 0x%p, phys = 0x%08x \n",
-	       private->buffer_virt, private->buffer_phys);
 
 	/* Request DMA channel */
 	private->dma = dma_request_slave_channel(&pdev->dev, "captured-video");
 
 	/* Xilinx DMA driver might be not initialized yet - defer if failed */
-	RPT();
 	if (private->dma == NULL)
 		return -EPROBE_DEFER;
-	RPT();
 
 	/* Initialize image parameters */
 	private->image_x = VSNIFF_MAX_X;
@@ -235,37 +208,30 @@ static int vsniff_probe(struct platform_device *pdev) {
 	/* Initialize chrdev driver */
 	vsniff_chrdev_is_open = 0;
 
-	RPT();
 	/* Attempt to alloc char device region */
 	result = alloc_chrdev_region(&(private->chrdev.dev), 0, 1,
 				     VSNIFF_CHRDEV_NAME);
-	RPT();
 	if (result < 0) {
 		printk(KERN_ERR "Failed to create chrdev region\n");
 		return result;
 	}
 
-	RPT();
 	/* Attempt to alloc mem for cdev */
 	private->chrdev.cdev = cdev_alloc();
-	RPT();
 	if (!private->chrdev.cdev) {
 		printk(KERN_ERR "Memory allocation failure (cdev)\n");
 		unregister_chrdev_region(private->chrdev.dev, 1);
 		return -ENOMEM;
 	}
-	RPT();
 
 	/* Attempt to create cdev */
 	cdev_init(private->chrdev.cdev, &vsniff_chrdev_fops);
-	RPT();
 	result = cdev_add(private->chrdev.cdev, private->chrdev.dev, 1);
 	if (result < 0) {
 		printk(KERN_ERR "Failed to create chrdev cdev\n");
 		unregister_chrdev_region(private->chrdev.dev, 1);
 		return result;
 	}
-	RPT();
 
 	/* Attempt to create chrdev class */
 	private->chrdev.cl = class_create(THIS_MODULE, VSNIFF_CHRDEV_NAME);
@@ -275,7 +241,6 @@ static int vsniff_probe(struct platform_device *pdev) {
 		unregister_chrdev_region(private->chrdev.dev, 1);
 		return -EEXIST;
 	}
-	RPT();
 
 	/* Create the actual device */
 	if (!device_create(private->chrdev.cl, NULL,
@@ -288,18 +253,15 @@ static int vsniff_probe(struct platform_device *pdev) {
 		unregister_chrdev_region(private->chrdev.dev, 1);
 		return -EINVAL;
 	}
-	RPT();
 
 	/* Set the driver data */
 	platform_set_drvdata(pdev, private);
-	RPT();
 
 	return 0;
 }
 
 static int vsniff_remove(struct platform_device *pdev)
 {
-	RPT();
 	struct vsniff_private_data *private;
 
 	/* Get private data */
@@ -339,13 +301,11 @@ static struct platform_driver vsniff_pdev_drv = {
 
 static int __init vsniff_init(void)
 {
-	RPT();
 	return platform_driver_register(&vsniff_pdev_drv);
 }
 
 static void __exit vsniff_exit(void)
 {
-	RPT();
 	platform_driver_unregister(&vsniff_pdev_drv);
 }
 
