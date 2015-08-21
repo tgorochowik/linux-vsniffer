@@ -73,31 +73,31 @@
 				dma-names = "captured-video";
 			};
 
-      output_vdma:axivdma@43010000 {
-        compatible = "xlnx,axi-vdma-1.00.a";
-        #address-cells = <0x1>;
-        #size-cells = <0x1>;
-        #dma-cells = <0x1>;
-        #dma-channels = <0x1>;
-        reg = <0x43010000 0x10000>;
-        xlnx,num-fstores = <0x3>;
-        xlnx,flush-fsync = <0x1>;
+			output_vdma:axivdma@43010000 {
+				compatible = "xlnx,axi-vdma-1.00.a";
+				#address-cells = <0x1>;
+				#size-cells = <0x1>;
+				#dma-cells = <0x1>;
+				#dma-channels = <0x1>;
+				reg = <0x43010000 0x10000>;
+				xlnx,num-fstores = <0x3>;
+				xlnx,flush-fsync = <0x1>;
 
-        dma-channel0@80000000 {
-          compatible = "xlnx,axi-vdma-mm2s-channel";
-          interrupts = <0x0 0x1e 0x4>;
-          xlnx,datawidth = <0x20>;
-          xlnx,genlock-mode = <0x3>;
-          xlnx,include-dre = <0x0>;
-        };
-      };
+				dma-channel0@80000000 {
+					compatible = "xlnx,axi-vdma-mm2s-channel";
+					interrupts = <0x0 0x1e 0x4>;
+					xlnx,datawidth = <0x20>;
+					xlnx,genlock-mode = <0x3>;
+					xlnx,include-dre = <0x0>;
+				};
+			};
 
-      axi_hdmi@43c10000 {
-        compatible = "ant,axi-dispctrl-hdmi-tx";
-        reg = <0x43c10000 0x10000>;
-        dmas = <&output_vdma 0x0>;
-        dma-names = "video";
-      };
+			axi_hdmi@43c10000 {
+				compatible = "ant,axi-dispctrl-hdmi-tx";
+				reg = <0x43c10000 0x10000>;
+				dmas = <&output_vdma 0x0>;
+				dma-names = "video";
+			};
 		};
 	};
 };
