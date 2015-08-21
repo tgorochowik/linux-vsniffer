@@ -331,7 +331,7 @@ static int axi_dispctrl_connector_get_modes(struct drm_connector *connector)
 static int axi_dispctrl_connector_mode_valid(struct drm_connector *connector,
 	struct drm_display_mode *mode)
 {
-	if (mode->clock > 165000)
+	if (mode->clock > 40000)
 		return MODE_CLOCK_HIGH;
 
 	if (mode->flags & DRM_MODE_FLAG_INTERLACE)
