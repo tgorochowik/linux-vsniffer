@@ -53,7 +53,7 @@
 				#size-cells = <0x1>;
 				#dma-cells = <0x1>;
 				#dma-channels = <0x1>;
-				reg = <0x43000000 0x1000>;
+				reg = <0x43000000 0x10000>;
 				xlnx,num-fstores = <0x1>;
 				xlnx,flush-fsync = <0x1>;
 
@@ -61,7 +61,7 @@
 					compatible = "xlnx,axi-vdma-s2mm-channel";
 					interrupts = <0x0 0x1d 0x4>;
 					xlnx,datawidth = <0x20>;
-					xlnx,genlock-mode = <0x0>;
+					xlnx,genlock-mode = <0x2>;
 					xlnx,include-dre = <0x0>;
 				};
 			};
