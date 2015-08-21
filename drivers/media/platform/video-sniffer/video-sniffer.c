@@ -164,7 +164,7 @@ static ssize_t vsniff_chrdev_read(struct file *file, char *buffer,
 	}
 
 	/* Copy the data to user */
-	if (copy_to_user(buffer, (private->buffer_virt + (*offset/4)), length))
+	if (copy_to_user(buffer, (private->buffer_virt + *offset), length))
 		return -EFAULT;
 
 	/* Update the reading offset */
