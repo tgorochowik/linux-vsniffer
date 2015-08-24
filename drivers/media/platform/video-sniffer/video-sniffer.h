@@ -20,10 +20,23 @@
 #define VSNIFF_DMA_FSIZE	VSNIFF_DMA_X * VSNIFF_DMA_Y * (VSNIFF_BPP / 8)
 #define VSNIFF_DMA_MEM_SIZE	VSNIFF_DMA_FSIZE * VSNIFF_NFRAMES
 
+/* Video sniffer register values */
+#define VSNIFF_REG_MODE_RGB	0x0000
+#define VSNIFF_REG_MODE_TMDS	0x0001
+
+/* ioctl related defines */
+#define VSNIFF_IOC_MAGIC	'i'
+#define VSNIFF_SETMODE_RGB	_IO(VSNIFF_IOC_MAGIC, 0x40)
+#define VSNIFF_SETMODE_TMDS	_IO(VSNIFF_IOC_MAGIC, 0x41)
+
 struct vsniff_chrdev_private_data {
 	dev_t dev;
 	struct class* cl;
 	struct cdev* cdev;
+};
+
+struct vsniff_ctrl_regs {
+	uint32_t mode;
 };
 
 struct vsniff_private_data {
@@ -37,7 +50,7 @@ struct vsniff_private_data {
 	uint32_t image_y;
 	uint32_t image_bpp;
 
-	void __iomem *base;
+	struct vsniff_ctrl_regs __iomem *regs;
 
 	struct vsniff_chrdev_private_data chrdev;
 };

@@ -150,11 +150,30 @@ static ssize_t vsniff_chrdev_read(struct file *file, char *buffer,
 	return length;
 }
 
+static long vsniff_chrdev_ioctl(struct file *file,
+				unsigned int cmd,
+				unsigned long arg)
+{
+	switch(cmd) {
+	case VSNIFF_SETMODE_RGB:
+		private->regs->mode = VSNIFF_REG_MODE_RGB;
+		break;
+	case VSNIFF_SETMODE_TMDS:
+		private->regs->mode = VSNIFF_REG_MODE_TMDS;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 /* File operations struct for the chrdev */
 struct file_operations vsniff_chrdev_fops = {
 	.open = vsniff_chrdev_open,
 	.release = vsniff_chrdev_release,
-	.read = vsniff_chrdev_read
+	.read = vsniff_chrdev_read,
+	.unlocked_ioctl = vsniff_chrdev_ioctl
 };
 
 static int vsniff_probe(struct platform_device *pdev)
@@ -171,12 +190,15 @@ static int vsniff_probe(struct platform_device *pdev)
 
 	/* Get the resource */
 	resource = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	private->base = devm_ioremap_resource(&pdev->dev, resource);
+	private->regs = devm_ioremap_resource(&pdev->dev, resource);
 
-	if (IS_ERR(private->base)) {
+	if (IS_ERR(private->regs)) {
 		printk(KERN_ERR "IO mapping failed\n");
-		return PTR_ERR(private->base);
+		return PTR_ERR(private->regs);
 	}
+
+	/* Set the sniffer to RGB mode by default */
+	private->regs->mode = VSNIFF_REG_MODE_TMDS;
 
 	/* Allocate memory for the buffer */
 	private->buffer_virt = dmam_alloc_coherent(&pdev->dev,
