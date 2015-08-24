@@ -156,9 +156,19 @@ static long vsniff_chrdev_ioctl(struct file *file,
 {
 	switch(cmd) {
 	case VSNIFF_SETMODE_RGB:
+		/* Copy only the image in RGB mode */
+		private->image_x = VSNIFF_RES_X;
+		private->image_y = VSNIFF_RES_Y;
+
+		/* Change the mode on fpga */
 		private->regs->mode = VSNIFF_REG_MODE_RGB;
 		break;
 	case VSNIFF_SETMODE_TMDS:
+		/* Copy the whole VDMA buffer as one line */
+		private->image_x = VSNIFF_DMA_X * VSNIFF_DMA_Y * VSNIFF_NFRAMES;
+		private->image_y = 1;
+
+		/* Change the mode on fpga */
 		private->regs->mode = VSNIFF_REG_MODE_TMDS;
 		break;
 	default:
@@ -198,11 +208,11 @@ static int vsniff_probe(struct platform_device *pdev)
 	}
 
 	/* Set the sniffer to RGB mode by default */
-	private->regs->mode = VSNIFF_REG_MODE_TMDS;
+	private->regs->mode = VSNIFF_REG_MODE_RGB;
 
 	/* Allocate memory for the buffer */
 	private->buffer_virt = dmam_alloc_coherent(&pdev->dev,
-						   VSNIFF_DMA_MEM_SIZE,
+						   VSNIFF_DMA_MEM_SIZE * 2,
 						   &(private->buffer_phys),
 						   GFP_DMA | GFP_KERNEL);
 

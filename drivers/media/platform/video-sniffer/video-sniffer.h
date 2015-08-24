@@ -6,8 +6,8 @@
 #define VSNIFF_RES_Y		1080
 
 /* Blank values used only to know how much encoded data to read */
-#define VSNIFF_HBLANK		20
-#define VSNIFF_VBLANK		6
+#define VSNIFF_HBLANK		50
+#define VSNIFF_VBLANK		20
 
 #define VSNIFF_BPP		32
 
