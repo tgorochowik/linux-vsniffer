@@ -179,19 +179,15 @@ static int vsniff_probe(struct platform_device *pdev) {
 	}
 
 	/* Allocate memory for the buffer */
-	private->buffer_virt = devm_kzalloc(&pdev->dev,
-					    VSNIFF_DMA_MEM_SIZE,
-					    GFP_DMA);
-
-	memset(private->buffer_virt, 0xAA, VSNIFF_DMA_MEM_SIZE);
+	private->buffer_virt = dmam_alloc_coherent(&pdev->dev,
+						   VSNIFF_DMA_MEM_SIZE,
+						   &(private->buffer_phys),
+						   GFP_DMA | GFP_KERNEL);
 
 	if (!private->buffer_virt) {
 		printk(KERN_ERR "Memory allocation failure (dma buffer)\n");
 		return -ENOMEM;
 	}
-
-	/* Translate addresses */
-	private->buffer_phys = (dma_addr_t)virt_to_phys(private->buffer_virt);
 
 	/* Request DMA channel */
 	private->dma = dma_request_slave_channel(&pdev->dev, "captured-video");
@@ -201,8 +197,8 @@ static int vsniff_probe(struct platform_device *pdev) {
 		return -EPROBE_DEFER;
 
 	/* Initialize image parameters */
-	private->image_x = VSNIFF_MAX_X;
-	private->image_y = VSNIFF_MAX_Y;
+	private->image_x = VSNIFF_RES_X;
+	private->image_y = VSNIFF_RES_Y;
 	private->image_bpp = VSNIFF_BPP;
 
 	/* Initialize chrdev driver */

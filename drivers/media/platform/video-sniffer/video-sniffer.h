@@ -2,11 +2,23 @@
 
 #define VIDEO_SNIFFER_H
 
-#define VSNIFF_MAX_X		800
-#define VSNIFF_MAX_Y		600
+#define VSNIFF_RES_X		1920
+#define VSNIFF_RES_Y		1080
+
+/* Blank values used only to know how much encoded data to read */
+#define VSNIFF_HBLANK		20
+#define VSNIFF_VBLANK		6
+
 #define VSNIFF_BPP		32
 
-#define VSNIFF_DMA_MEM_SIZE	(VSNIFF_MAX_X * VSNIFF_MAX_Y * VSNIFF_BPP / 8)
+/* Number of encoded frames to copy */
+#define VSNIFF_NFRAMES		2
+
+#define VSNIFF_DMA_X		(VSNIFF_RES_X + VSNIFF_HBLANK)
+#define VSNIFF_DMA_Y		(VSNIFF_RES_Y + VSNIFF_VBLANK)
+
+#define VSNIFF_DMA_FSIZE	VSNIFF_DMA_X * VSNIFF_DMA_Y * (VSNIFF_BPP / 8)
+#define VSNIFF_DMA_MEM_SIZE	VSNIFF_DMA_FSIZE * VSNIFF_NFRAMES
 
 struct vsniff_chrdev_private_data {
 	dev_t dev;
