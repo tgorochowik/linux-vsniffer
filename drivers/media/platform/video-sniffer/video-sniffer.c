@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2015 Antmicro Ltd.
  *
- * Author(s): *  Tomasz Gorochowik <tgorochowik@antmicro.com>
+ * Author(s): Tomasz Gorochowik <tgorochowik@antmicro.com>
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -90,7 +90,6 @@ static ssize_t vsniff_chrdev_read(struct file *file, char *buffer,
 
 	/* New DMA transfer if it is the first chunk */
 	if (*offset == 0) {
-		printk(KERN_ERR "DMA TRANSFER\n");
 		xt = kzalloc(sizeof(struct dma_async_tx_descriptor) +
 			     sizeof(struct data_chunk), GFP_KERNEL);
 
@@ -158,7 +157,8 @@ struct file_operations vsniff_chrdev_fops = {
 	.read = vsniff_chrdev_read
 };
 
-static int vsniff_probe(struct platform_device *pdev) {
+static int vsniff_probe(struct platform_device *pdev)
+{
 	struct resource *resource;
 	int result;
 
