@@ -13,7 +13,7 @@
 #define VSNIFF_BPP		32
 
 /* Number of encoded frames to copy */
-#define VSNIFF_NFRAMES		2
+#define VSNIFF_NFRAMES		3
 
 #define VSNIFF_DMA_X		(VSNIFF_RES_X + VSNIFF_HBLANK)
 #define VSNIFF_DMA_Y		(VSNIFF_RES_Y + VSNIFF_VBLANK)
