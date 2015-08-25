@@ -164,9 +164,9 @@ static long vsniff_chrdev_ioctl(struct file *file,
 		private->regs->mode = VSNIFF_REG_MODE_RGB;
 		break;
 	case VSNIFF_SETMODE_TMDS:
-		/* Copy the whole VDMA buffer as one line */
-		private->image_x = VSNIFF_DMA_X * VSNIFF_DMA_Y * VSNIFF_NFRAMES;
-		private->image_y = 1;
+		/* Copy the image along with the blank areas */
+		private->image_x = VSNIFF_DMA_X;
+		private->image_y = VSNIFF_DMA_Y * VSNIFF_NFRAMES;
 
 		/* Change the mode on fpga */
 		private->regs->mode = VSNIFF_REG_MODE_TMDS;
