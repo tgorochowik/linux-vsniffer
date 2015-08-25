@@ -5,7 +5,8 @@
 #define VSNIFF_RES_X		1920
 #define VSNIFF_RES_Y		1080
 
-/* Blank values used only to know how much encoded data to read */
+/* Blank values used only to know how much encoded data to read. These have to
+ * be set to the same values as in the video-sniffer ipcore in the fpga */
 #define VSNIFF_HBLANK		50
 #define VSNIFF_VBLANK		20
 
