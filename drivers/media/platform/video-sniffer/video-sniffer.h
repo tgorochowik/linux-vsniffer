@@ -2,8 +2,8 @@
 
 #define VIDEO_SNIFFER_H
 
-#define VSNIFF_RES_X		1920
-#define VSNIFF_RES_Y		1080
+#define VSNIFF_RES_X		800
+#define VSNIFF_RES_Y		600
 
 /* Blank values used only to know how much encoded data to read. These have to
  * be set to the same values as in the video-sniffer ipcore in the fpga */
@@ -40,6 +40,17 @@ struct vsniff_ctrl_regs {
 	uint32_t mode;
 };
 
+struct vsniff_v4l2_private_data {
+	struct vb2_alloc_ctx *alloc_ctx;
+	struct dma_chan *dma;
+	struct v4l2_device dev;
+	struct video_device vdev;
+	struct vb2_queue queue;
+	struct mutex lock;
+	struct list_head queued_buffers;
+	spinlock_t spinlock;
+};
+
 struct vsniff_private_data {
 	struct dma_chan *dma;
 	struct xilinx_dma_config dma_config;
@@ -54,6 +65,12 @@ struct vsniff_private_data {
 	struct vsniff_ctrl_regs __iomem *regs;
 
 	struct vsniff_chrdev_private_data chrdev;
+	struct vsniff_v4l2_private_data v4l2;
+};
+
+struct vsniff_v4l2_buffer {
+	struct vb2_buffer vb;
+	struct list_head head;
 };
 
 #define VSNIFF_CHRDEV_NAME	"vsniff"
