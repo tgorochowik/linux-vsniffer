@@ -2,15 +2,15 @@
 
 #define VIDEO_SNIFFER_H
 
-#define VSNIFF_RES_X		800
-#define VSNIFF_RES_Y		600
+#define VSNIFF_RES_X		1920
+#define VSNIFF_RES_Y		1080
 
 /* Blank values used only to know how much encoded data to read. These have to
  * be set to the same values as in the video-sniffer ipcore in the fpga */
 #define VSNIFF_HBLANK		50
 #define VSNIFF_VBLANK		20
 
-#define VSNIFF_BPP		32
+#define VSNIFF_BPP		  (32/8)
 
 /* Number of encoded frames to copy */
 #define VSNIFF_NFRAMES		3
@@ -18,7 +18,7 @@
 #define VSNIFF_DMA_X		(VSNIFF_RES_X + VSNIFF_HBLANK)
 #define VSNIFF_DMA_Y		(VSNIFF_RES_Y + VSNIFF_VBLANK)
 
-#define VSNIFF_DMA_FSIZE	VSNIFF_DMA_X * VSNIFF_DMA_Y * (VSNIFF_BPP / 8)
+#define VSNIFF_DMA_FSIZE	VSNIFF_DMA_X * VSNIFF_DMA_Y * VSNIFF_BPP
 #define VSNIFF_DMA_MEM_SIZE	VSNIFF_DMA_FSIZE * VSNIFF_NFRAMES
 
 /* Video sniffer register values */
@@ -38,6 +38,8 @@ struct vsniff_chrdev_private_data {
 
 struct vsniff_ctrl_regs {
 	uint32_t mode;
+	uint32_t res_x;
+	uint32_t res_y;
 };
 
 struct vsniff_v4l2_private_data {
@@ -57,10 +59,6 @@ struct vsniff_private_data {
 
 	void *buffer_virt;
 	dma_addr_t buffer_phys;
-
-	uint32_t image_x;
-	uint32_t image_y;
-	uint32_t image_bpp;
 
 	struct vsniff_ctrl_regs __iomem *regs;
 

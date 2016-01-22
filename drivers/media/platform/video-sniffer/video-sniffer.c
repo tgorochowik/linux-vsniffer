@@ -82,9 +82,9 @@ static ssize_t vsniff_chrdev_read(struct file *file, char *buffer,
 	uint32_t frame_size;
 
 	/* Calculate frame size */
-	frame_size = private->image_y *
-		private->image_x *
-		private->image_bpp / 8;
+	frame_size = private->regs->res_y *
+		private->regs->res_x *
+		VSNIFF_BPP;
 
 	/* Check limits */
 	if (*offset >= frame_size)
@@ -108,8 +108,8 @@ static ssize_t vsniff_chrdev_read(struct file *file, char *buffer,
 		xt->src_sgl = false;
 		xt->dst_sgl = true;
 		xt->frame_size = 1;
-		xt->numf = private->image_y;
-		xt->sgl[0].size = private->image_x * private->image_bpp / 8;
+		xt->numf = private->regs->res_y;
+		xt->sgl[0].size = private->regs->res_x * VSNIFF_BPP;
 		xt->sgl[0].icg = 0;
 		xt->dir = DMA_DEV_TO_MEM;
 
@@ -165,24 +165,10 @@ static long vsniff_chrdev_ioctl(struct file *file,
 {
 	switch(cmd) {
 	case VSNIFF_SETMODE_RGB:
-		/* Copy only the image in RGB mode */
-		private->image_x = private->regs->res_x;
-		private->image_y = private->regs->res_y;
-
-		if (private->image_x == 0 || private->image_y == 0) {
-			printk(KERN_INFO "Could not get resolution.\n");
-			private->image_x = VSNIFF_RES_X;
-			private->image_y = VSNIFF_RES_Y;
-		}
-
 		/* Change the mode on fpga */
 		private->regs->mode = VSNIFF_REG_MODE_RGB;
 		break;
 	case VSNIFF_SETMODE_TMDS:
-		/* Copy the image along with the blank areas */
-		private->image_x = VSNIFF_DMA_X;
-		private->image_y = VSNIFF_DMA_Y * VSNIFF_NFRAMES;
-
 		/* Change the mode on fpga */
 		private->regs->mode = VSNIFF_REG_MODE_TMDS;
 		break;
@@ -250,7 +236,8 @@ static int vsniff_v4l2_queue_setup(struct vb2_queue *q,
 		sizes[0] = fmt->fmt.pix.sizeimage;
 	} else {
 		printk(KERN_ERR "Format is taken from channel settings\n");
-		sizes[0] = private->image_x * private->image_y * private->image_bpp / 8;
+		sizes[0] = private->regs->res_x *
+			private->regs->res_y * VSNIFF_BPP;
 	}
 
 	if (sizes[0] == 0)
@@ -264,7 +251,7 @@ static int vsniff_v4l2_buf_prepare(struct vb2_buffer *vb)
 {
 	unsigned size;
 
-	size = private->image_x * private->image_y * private->image_bpp / 8;
+	size = private->regs->res_x * private->regs->res_y * VSNIFF_BPP;
 	if (vb2_plane_size(vb, 0) < size) {
 		printk(KERN_ERR" data will not fit the plane (%lu < %u)\n",
 		       vb2_plane_size(vb, 0), size);
@@ -298,8 +285,8 @@ static void vsniff_v4l2_buf_queue(struct vb2_buffer *vb)
 	xt->src_sgl = false;
 	xt->dst_sgl = true;
 	xt->frame_size = 1;
-	xt->numf = private->image_y;
-	xt->sgl[0].size = private->image_x * private->image_bpp / 8;
+	xt->numf = private->regs->res_y;
+	xt->sgl[0].size = private->regs->res_x * VSNIFF_BPP;
 	xt->sgl[0].icg = 0;
 	xt->dir = DMA_DEV_TO_MEM;
 
@@ -417,10 +404,9 @@ static int vsniff_v4l2_g_fmt_vid_cap(struct file *file, void *priv_fh,
 {
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 
-	/* TODO take image size from priv data */
-	pix->width = private->image_x;
-	pix->height = private->image_y;
-	pix->bytesperline = private->image_x * private->image_bpp / 8;
+	pix->width = private->regs->res_x;
+	pix->height = private->regs->res_y;
+	pix->bytesperline = private->regs->res_x * VSNIFF_BPP;
 	pix->colorspace = V4L2_COLORSPACE_SRGB;
 	pix->pixelformat = V4L2_PIX_FMT_ARGB32;
 	pix->sizeimage =  pix->bytesperline * pix->height;
@@ -434,11 +420,11 @@ static int vsniff_v4l2_try_fmt_vid_cap(struct file *file, void *priv_fh,
 {
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 
-	v4l_bound_align_image(&pix->width, 176, private->image_x, 0,
-			      &pix->height, 144, private->image_y, 0, 0);
+	v4l_bound_align_image(&pix->width, 176, private->regs->res_x, 0,
+			      &pix->height, 144, private->regs->res_y, 0, 0);
 	pix->colorspace = V4L2_COLORSPACE_SRGB;
 	pix->pixelformat = V4L2_PIX_FMT_ARGB32;
-	pix->bytesperline = pix->width * private->image_bpp / 8;
+	pix->bytesperline = pix->width * VSNIFF_BPP;
 	pix->sizeimage =  pix->bytesperline * pix->height;
 	pix->field = V4L2_FIELD_NONE;
 	pix->priv = 0;
@@ -522,17 +508,6 @@ static int vsniff_probe(struct platform_device *pdev)
 
 	/* Set the sniffer to RGB mode by default */
 	private->regs->mode = VSNIFF_REG_MODE_RGB;
-
-	/* Initialize image parameters */
-	private->image_x = private->regs->res_x;
-	private->image_y = private->regs->res_y;
-
-	if (private->image_x == 0 || private->image_y == 0) {
-		printk(KERN_INFO "Could not get resolution.\n");
-		private->image_x = VSNIFF_RES_X;
-		private->image_y = VSNIFF_RES_Y;
-	}
-	private->image_bpp = VSNIFF_BPP;
 
 	/* Allocate memory for the buffer */
 	private->buffer_virt = dmam_alloc_coherent(&pdev->dev,
