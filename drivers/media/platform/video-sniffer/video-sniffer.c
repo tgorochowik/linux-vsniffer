@@ -44,7 +44,6 @@
 
 #include "video-sniffer.h"
 
-
 /* Global variables for chrdev */
 static int vsniff_chrdev_is_open;
 static struct vsniff_private_data *private;
@@ -167,8 +166,14 @@ static long vsniff_chrdev_ioctl(struct file *file,
 	switch(cmd) {
 	case VSNIFF_SETMODE_RGB:
 		/* Copy only the image in RGB mode */
-		private->image_x = VSNIFF_RES_X;
-		private->image_y = VSNIFF_RES_Y;
+		private->image_x = private->regs->res_x;
+		private->image_y = private->regs->res_y;
+
+		if (private->image_x == 0 || private->image_y == 0) {
+			printk(KERN_INFO "Could not get resolution.\n");
+			private->image_x = VSNIFF_RES_X;
+			private->image_y = VSNIFF_RES_Y;
+		}
 
 		/* Change the mode on fpga */
 		private->regs->mode = VSNIFF_REG_MODE_RGB;
@@ -245,7 +250,7 @@ static int vsniff_v4l2_queue_setup(struct vb2_queue *q,
 		sizes[0] = fmt->fmt.pix.sizeimage;
 	} else {
 		printk(KERN_ERR "Format is taken from channel settings\n");
-		sizes[0] = VSNIFF_RES_X * VSNIFF_RES_Y * VSNIFF_BPP / 8; /* FIXME */
+		sizes[0] = private->image_x * private->image_y * private->image_bpp / 8;
 	}
 
 	if (sizes[0] == 0)
@@ -259,8 +264,7 @@ static int vsniff_v4l2_buf_prepare(struct vb2_buffer *vb)
 {
 	unsigned size;
 
-
-	size = VSNIFF_RES_X * VSNIFF_RES_Y * VSNIFF_BPP / 8; /* FIXME */
+	size = private->image_x * private->image_y * private->image_bpp / 8;
 	if (vb2_plane_size(vb, 0) < size) {
 		printk(KERN_ERR" data will not fit the plane (%lu < %u)\n",
 		       vb2_plane_size(vb, 0), size);
@@ -282,7 +286,6 @@ static void vsniff_v4l2_buf_queue(struct vb2_buffer *vb)
 
 	struct vsniff_v4l2_buffer *buf = vb2_buf_to_vsniff_buf(vb);
 
-
 	addr = vb2_dma_contig_plane_dma_addr(vb, 0);
 	size = vb2_get_plane_payload(vb, 0);
 
@@ -295,8 +298,8 @@ static void vsniff_v4l2_buf_queue(struct vb2_buffer *vb)
 	xt->src_sgl = false;
 	xt->dst_sgl = true;
 	xt->frame_size = 1;
-	xt->numf = VSNIFF_RES_Y; //1; //private->image_y;
-	xt->sgl[0].size = VSNIFF_RES_X * 4; //size; //private->image_x * private->image_bpp / 8;
+	xt->numf = private->image_y;
+	xt->sgl[0].size = private->image_x * private->image_bpp / 8;
 	xt->sgl[0].icg = 0;
 	xt->dir = DMA_DEV_TO_MEM;
 
@@ -415,9 +418,9 @@ static int vsniff_v4l2_g_fmt_vid_cap(struct file *file, void *priv_fh,
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 
 	/* TODO take image size from priv data */
-	pix->width = VSNIFF_RES_X;
-	pix->height = VSNIFF_RES_Y;
-	pix->bytesperline = VSNIFF_RES_X * VSNIFF_BPP / 8;
+	pix->width = private->image_x;
+	pix->height = private->image_y;
+	pix->bytesperline = private->image_x * private->image_bpp / 8;
 	pix->colorspace = V4L2_COLORSPACE_SRGB;
 	pix->pixelformat = V4L2_PIX_FMT_ARGB32;
 	pix->sizeimage =  pix->bytesperline * pix->height;
@@ -431,11 +434,11 @@ static int vsniff_v4l2_try_fmt_vid_cap(struct file *file, void *priv_fh,
 {
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 
-	v4l_bound_align_image(&pix->width, 176, VSNIFF_RES_X, 0, &pix->height, 144,
-			      VSNIFF_RES_Y, 0, 0);
+	v4l_bound_align_image(&pix->width, 176, private->image_x, 0,
+			      &pix->height, 144, private->image_y, 0, 0);
 	pix->colorspace = V4L2_COLORSPACE_SRGB;
 	pix->pixelformat = V4L2_PIX_FMT_ARGB32;
-	pix->bytesperline = pix->width * VSNIFF_BPP / 8; /* TODO should be from priv */
+	pix->bytesperline = pix->width * private->image_bpp / 8;
 	pix->sizeimage =  pix->bytesperline * pix->height;
 	pix->field = V4L2_FIELD_NONE;
 	pix->priv = 0;
@@ -501,7 +504,6 @@ static int vsniff_probe(struct platform_device *pdev)
 	struct video_device *vdev;
 	int result;
 
-
 	/* Allocate memory for private data */
 	private = devm_kzalloc(&pdev->dev, sizeof(*private), GFP_KERNEL);
 	if (!private) {
@@ -521,6 +523,17 @@ static int vsniff_probe(struct platform_device *pdev)
 	/* Set the sniffer to RGB mode by default */
 	private->regs->mode = VSNIFF_REG_MODE_RGB;
 
+	/* Initialize image parameters */
+	private->image_x = private->regs->res_x;
+	private->image_y = private->regs->res_y;
+
+	if (private->image_x == 0 || private->image_y == 0) {
+		printk(KERN_INFO "Could not get resolution.\n");
+		private->image_x = VSNIFF_RES_X;
+		private->image_y = VSNIFF_RES_Y;
+	}
+	private->image_bpp = VSNIFF_BPP;
+
 	/* Allocate memory for the buffer */
 	private->buffer_virt = dmam_alloc_coherent(&pdev->dev,
 						   VSNIFF_DMA_MEM_SIZE * 2,
@@ -538,11 +551,6 @@ static int vsniff_probe(struct platform_device *pdev)
 	/* Xilinx DMA driver might be not initialized yet - defer if failed */
 	if (private->dma == NULL)
 		return -EPROBE_DEFER;
-
-	/* Initialize image parameters */
-	private->image_x = VSNIFF_RES_X;
-	private->image_y = VSNIFF_RES_Y;
-	private->image_bpp = VSNIFF_BPP / 8;
 
 	/* Initialize chrdev driver */
 	vsniff_chrdev_is_open = 0;
@@ -603,14 +611,12 @@ static int vsniff_probe(struct platform_device *pdev)
 	/* Give the same DMA pointer to v4l2 driver */
 	private->v4l2.dma = private->dma;
 
-
 	private->v4l2.alloc_ctx = vb2_dma_contig_init_ctx(&pdev->dev);
 	if (IS_ERR(private->v4l2.alloc_ctx)) {
 		result = PTR_ERR(private->v4l2.alloc_ctx);
 		printk(KERN_ERR "Failed to init ctx\n");
 		return -result;
 	}
-
 
 	vdev = &private->v4l2.vdev;
 	mutex_init(&private->v4l2.lock);
@@ -655,7 +661,6 @@ static int vsniff_probe(struct platform_device *pdev)
 static int vsniff_remove(struct platform_device *pdev)
 {
 	struct vsniff_private_data *private;
-
 
 	/* Get private data */
 	private = (struct vsniff_private_data*)pdev->dev.driver_data;
