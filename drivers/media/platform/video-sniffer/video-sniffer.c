@@ -189,7 +189,7 @@ struct file_operations vsniff_chrdev_fops = {
 
 static struct vsniff_v4l2_buffer *vb2_buf_to_vsniff_buf(struct vb2_buffer *vb)
 {
-        return container_of(vb, struct vsniff_v4l2_buffer, vb);
+	return container_of(vb, struct vsniff_v4l2_buffer, vb);
 }
 
 static void vsniff_v4l2_dma_transfer_done(void *arg)
@@ -204,7 +204,7 @@ static void vsniff_v4l2_dma_transfer_done(void *arg)
 	spin_unlock_irqrestore(&priv->spinlock, flags);
 
 	v4l2_get_timestamp(&buf->vb.v4l2_buf.timestamp);
-        vb2_buffer_done(&buf->vb, VB2_BUF_STATE_DONE);
+	vb2_buffer_done(&buf->vb, VB2_BUF_STATE_DONE);
 }
 
 /* File operations struct for the v4l2 dev */
@@ -362,7 +362,7 @@ static int vsniff_v4l2_log_status(struct file *file, void *priv)
 }
 
 static int vsniff_v4l2_querycap(struct file *file, void *priv_fh,
-        struct v4l2_capability *vcap)
+				struct v4l2_capability *vcap)
 {
 	strlcpy(vcap->driver, "vsniff_v4l2_streamer", sizeof(vcap->driver));
 	strlcpy(vcap->card, "vsniff_v4l2_streamer", sizeof(vcap->card));
@@ -372,7 +372,7 @@ static int vsniff_v4l2_querycap(struct file *file, void *priv_fh,
 }
 
 static int vsniff_v4l2_streamon(struct file *file, void *priv_fh,
-        enum v4l2_buf_type buffer_type)
+				enum v4l2_buf_type buffer_type)
 {
 	if (buffer_type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
 		return -EINVAL;
@@ -381,13 +381,13 @@ static int vsniff_v4l2_streamon(struct file *file, void *priv_fh,
 }
 
 static int vsniff_v4l2_streamoff(struct file *file, void *priv_fh,
-        enum v4l2_buf_type buffer_type)
+				 enum v4l2_buf_type buffer_type)
 {
 	return 0;
 }
 
 static int vsniff_v4l2_enum_fmt_vid_cap(struct file *file, void *priv_fh,
-        struct v4l2_fmtdesc *f)
+					struct v4l2_fmtdesc *f)
 {
 	if(f->index == 0) {
 		strlcpy(f->description, "RGBA888 + 8b padding", sizeof(f->description));
@@ -400,7 +400,7 @@ static int vsniff_v4l2_enum_fmt_vid_cap(struct file *file, void *priv_fh,
 }
 
 static int vsniff_v4l2_g_fmt_vid_cap(struct file *file, void *priv_fh,
-        struct v4l2_format *f)
+				     struct v4l2_format *f)
 {
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 
@@ -416,7 +416,7 @@ static int vsniff_v4l2_g_fmt_vid_cap(struct file *file, void *priv_fh,
 }
 
 static int vsniff_v4l2_try_fmt_vid_cap(struct file *file, void *priv_fh,
-        struct v4l2_format *f)
+				       struct v4l2_format *f)
 {
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 
@@ -432,15 +432,14 @@ static int vsniff_v4l2_try_fmt_vid_cap(struct file *file, void *priv_fh,
 }
 
 static int vsniff_v4l2_s_fmt_vid_cap(struct file *file, void *priv_fh,
-        struct v4l2_format *f)
+				     struct v4l2_format *f)
 {
 	return 0;
 }
 
 static int vsniff_v4l2_enum_input(struct file *file, void *priv_fh,
-        struct v4l2_input *inp)
+				  struct v4l2_input *inp)
 {
-
 	if (inp->index == 0) {
 		snprintf(inp->name, sizeof(inp->name), "Video Sniffer Streaming");
 		inp->type = V4L2_INPUT_TYPE_CAMERA;

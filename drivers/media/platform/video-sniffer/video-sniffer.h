@@ -10,7 +10,7 @@
 #define VSNIFF_HBLANK		50
 #define VSNIFF_VBLANK		20
 
-#define VSNIFF_BPP		  (32/8)
+#define VSNIFF_BPP		(32/8)
 
 /* Number of encoded frames to copy */
 #define VSNIFF_NFRAMES		3
