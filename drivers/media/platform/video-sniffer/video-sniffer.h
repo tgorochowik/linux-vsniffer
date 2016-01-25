@@ -29,6 +29,7 @@
 #define VSNIFF_IOC_MAGIC	'i'
 #define VSNIFF_SETMODE_RGB	_IO(VSNIFF_IOC_MAGIC, 0x40)
 #define VSNIFF_SETMODE_TMDS	_IO(VSNIFF_IOC_MAGIC, 0x41)
+#define VSNIFF_GETRES		_IO(VSNIFF_IOC_MAGIC, 0x42)
 
 struct vsniff_chrdev_private_data {
 	dev_t dev;

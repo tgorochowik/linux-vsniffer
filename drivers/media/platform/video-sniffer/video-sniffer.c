@@ -163,6 +163,7 @@ static long vsniff_chrdev_ioctl(struct file *file,
 				unsigned int cmd,
 				unsigned long arg)
 {
+	uint32_t buf = 0;
 	switch(cmd) {
 	case VSNIFF_SETMODE_RGB:
 		/* Change the mode on fpga */
@@ -171,6 +172,13 @@ static long vsniff_chrdev_ioctl(struct file *file,
 	case VSNIFF_SETMODE_TMDS:
 		/* Change the mode on fpga */
 		private->regs->mode = VSNIFF_REG_MODE_TMDS;
+		break;
+	case VSNIFF_GETRES:
+		/* Width on the MSB half, height on the LSB half */
+		buf = (private->regs->res_x & 0xffff) << 16;
+		buf |= (private->regs->res_y & 0xffff);
+
+		copy_to_user((uint32_t*)arg, &buf, sizeof(buf));
 		break;
 	default:
 		return -EINVAL;
