@@ -31,12 +31,6 @@
 #define VSNIFF_SETMODE_TMDS	_IO(VSNIFF_IOC_MAGIC, 0x41)
 #define VSNIFF_GETRES		_IO(VSNIFF_IOC_MAGIC, 0x42)
 
-struct vsniff_chrdev_private_data {
-	dev_t dev;
-	struct class* cl;
-	struct cdev* cdev;
-};
-
 struct vsniff_ctrl_regs {
 	uint32_t mode;
 	uint32_t res_x;
@@ -63,7 +57,6 @@ struct vsniff_private_data {
 
 	struct vsniff_ctrl_regs __iomem *regs;
 
-	struct vsniff_chrdev_private_data chrdev;
 	struct vsniff_v4l2_private_data v4l2;
 };
 
@@ -71,7 +64,5 @@ struct vsniff_v4l2_buffer {
 	struct vb2_buffer vb;
 	struct list_head head;
 };
-
-#define VSNIFF_CHRDEV_NAME	"vsniff"
 
 #endif /* VIDEO_SNIFFER_H */

@@ -44,124 +44,11 @@
 
 #include "video-sniffer.h"
 
-/* Global variables for chrdev */
-static int vsniff_chrdev_is_open;
 static struct vsniff_private_data *private;
 
-static int vsniff_chrdev_open(struct inode *inode, struct file *file)
-{
-	if (vsniff_chrdev_is_open)
-		return -EBUSY;
-
-	vsniff_chrdev_is_open++;
-	try_module_get(THIS_MODULE);
-
-	return 0;
-}
-
-static int vsniff_chrdev_release(struct inode *inode, struct file *file)
-{
-	vsniff_chrdev_is_open--;
-	module_put(THIS_MODULE);
-
-	return 0;
-}
-
-static void vsniff_chrdev_dma_transfer_done(void *arg)
-{
-	complete((struct completion*)arg);
-}
-
-static ssize_t vsniff_chrdev_read(struct file *file, char *buffer,
-				  size_t length, loff_t *offset)
-{
-	struct dma_interleaved_template *xt;
-	struct dma_async_tx_descriptor *desc;
-	struct completion dma_transfer_complete;
-	dma_cookie_t cookie;
-	uint32_t frame_size;
-
-	/* Calculate frame size */
-	frame_size = private->regs->res_y *
-		private->regs->res_x *
-		VSNIFF_BPP;
-
-	/* Check limits */
-	if (*offset >= frame_size)
-		*offset = frame_size;
-
-	if ((*offset + length) >= frame_size)
-		length = (frame_size - *offset);
-
-	/* Check if there is anything to send */
-	if (!length)
-		return 0;
-
-	/* New DMA transfer if it is the first chunk */
-	if (*offset == 0) {
-		xt = kzalloc(sizeof(struct dma_async_tx_descriptor) +
-			     sizeof(struct data_chunk), GFP_KERNEL);
-
-		xt->dst_start = private->buffer_phys;
-		xt->src_inc = false;
-		xt->dst_inc = true;
-		xt->src_sgl = false;
-		xt->dst_sgl = true;
-		xt->frame_size = 1;
-		xt->numf = private->regs->res_y;
-		xt->sgl[0].size = private->regs->res_x * VSNIFF_BPP;
-		xt->sgl[0].icg = 0;
-		xt->dir = DMA_DEV_TO_MEM;
-
-		desc = dmaengine_prep_interleaved_dma(private->dma, xt,
-						      DMA_PREP_INTERRUPT);
-		kfree(xt);
-		if (!desc) {
-			printk(KERN_ERR "Internal VDMA error\n");
-			return -EIO;
-		}
-
-		/* Register dma callback */
-		desc->callback = vsniff_chrdev_dma_transfer_done;
-
-		/* Prepare completion struct */
-		init_completion(&dma_transfer_complete);
-
-		/* Register callback param */
-		desc->callback_param = &dma_transfer_complete;
-
-		/* Submit the prepared transfer */
-		cookie = dmaengine_submit(desc);
-		if (cookie < 0) {
-			printk(KERN_ERR "Internal VDMA error \n");
-			return -EIO;
-		}
-
-		/* Start internal transfer */
-		dma_async_issue_pending(private->dma);
-
-		/* Wait until the transfer is done */
-		if (!wait_for_completion_timeout(&dma_transfer_complete,
-						 msecs_to_jiffies(2000)))
-			return -ETIMEDOUT;
-
-		/* Terminate transfer */
-		dmaengine_terminate_all(private->dma);
-	}
-
-	/* Copy the data to user */
-	if (copy_to_user(buffer, (private->buffer_virt + *offset), length))
-		return -EFAULT;
-
-	/* Update the reading offset */
-	*offset += length;
-
-	return length;
-}
-
-static long vsniff_chrdev_ioctl(struct file *file,
-				unsigned int cmd,
-				unsigned long arg)
+static long vsniff_v4l2_ioctl(struct file *file,
+			      unsigned int cmd,
+			      unsigned long arg)
 {
 	uint32_t buf = 0;
 	switch(cmd) {
@@ -181,19 +68,12 @@ static long vsniff_chrdev_ioctl(struct file *file,
 		copy_to_user((uint32_t*)arg, &buf, sizeof(buf));
 		break;
 	default:
-		return -EINVAL;
+		/* Fallback to generic v4l2 ioctl */
+		return video_ioctl2(file, cmd, arg);
 	}
 
 	return 0;
 }
-
-/* File operations struct for the chrdev */
-struct file_operations vsniff_chrdev_fops = {
-	.open = vsniff_chrdev_open,
-	.release = vsniff_chrdev_release,
-	.read = vsniff_chrdev_read,
-	.unlocked_ioctl = vsniff_chrdev_ioctl
-};
 
 static struct vsniff_v4l2_buffer *vb2_buf_to_vsniff_buf(struct vb2_buffer *vb)
 {
@@ -220,7 +100,7 @@ static const struct v4l2_file_operations vsniff_v4l2_fops = {
 	.owner = THIS_MODULE,
 	.open = v4l2_fh_open,
 	.release = vb2_fop_release,
-	.unlocked_ioctl = video_ioctl2,
+	.unlocked_ioctl = vsniff_v4l2_ioctl,
 	.read = vb2_fop_read,
 	.poll = vb2_fop_poll,
 	.mmap = vb2_fop_mmap,
@@ -534,55 +414,6 @@ static int vsniff_probe(struct platform_device *pdev)
 	if (private->dma == NULL)
 		return -EPROBE_DEFER;
 
-	/* Initialize chrdev driver */
-	vsniff_chrdev_is_open = 0;
-
-	/* Attempt to alloc char device region */
-	result = alloc_chrdev_region(&(private->chrdev.dev), 0, 1,
-				     VSNIFF_CHRDEV_NAME);
-	if (result < 0) {
-		printk(KERN_ERR "Failed to create chrdev region\n");
-		return result;
-	}
-
-	/* Attempt to alloc mem for cdev */
-	private->chrdev.cdev = cdev_alloc();
-	if (!private->chrdev.cdev) {
-		printk(KERN_ERR "Memory allocation failure (cdev)\n");
-		unregister_chrdev_region(private->chrdev.dev, 1);
-		return -ENOMEM;
-	}
-
-	/* Attempt to create cdev */
-	cdev_init(private->chrdev.cdev, &vsniff_chrdev_fops);
-	result = cdev_add(private->chrdev.cdev, private->chrdev.dev, 1);
-	if (result < 0) {
-		printk(KERN_ERR "Failed to create chrdev cdev\n");
-		unregister_chrdev_region(private->chrdev.dev, 1);
-		return result;
-	}
-
-	/* Attempt to create chrdev class */
-	private->chrdev.cl = class_create(THIS_MODULE, VSNIFF_CHRDEV_NAME);
-	if (!private->chrdev.cl) {
-		printk(KERN_ERR "Failed to create chrdev class\n");
-		cdev_del(private->chrdev.cdev);
-		unregister_chrdev_region(private->chrdev.dev, 1);
-		return -EEXIST;
-	}
-
-	/* Create the actual device */
-	if (!device_create(private->chrdev.cl, NULL,
-			   private->chrdev.dev, NULL,
-			   VSNIFF_CHRDEV_NAME"-%d",
-			   MINOR(private->chrdev.dev))) {
-		printk(KERN_ERR "Failed to create chrdev\n");
-		class_destroy(private->chrdev.cl);
-		cdev_del(private->chrdev.cdev);
-		unregister_chrdev_region(private->chrdev.dev, 1);
-		return -EINVAL;
-	}
-
 	/* Iinitalize v4l2 driver */
 	result = v4l2_device_register(&pdev->dev, &private->v4l2.dev);
 	if (result) {
@@ -650,12 +481,6 @@ static int vsniff_remove(struct platform_device *pdev)
 	/* Release dma */
 	if (private->dma)
 		dma_release_channel(private->dma);
-
-	/* Unregister chrdev */
-	device_destroy(private->chrdev.cl, private->chrdev.dev);
-	class_destroy(private->chrdev.cl);
-	cdev_del(private->chrdev.cdev);
-	unregister_chrdev_region(private->chrdev.dev, 1);
 
 	/* Unregister v4l2 dev */
 	video_unregister_device(&private->v4l2.vdev);
