@@ -83,7 +83,7 @@ static struct vsniff_v4l2_buffer *vb2_buf_to_vsniff_buf(struct vb2_buffer *vb)
 static void vsniff_v4l2_dma_transfer_done(void *arg)
 {
 	struct vsniff_v4l2_buffer *buf = arg;
-	struct vsniff_v4l2_private_data *priv;
+	struct vsniff_private_data *priv;
 	unsigned long flags;
 
 	priv = vb2_get_drv_priv(buf->vb.vb2_queue);
@@ -113,7 +113,7 @@ static int vsniff_v4l2_queue_setup(struct vb2_queue *q,
 				   unsigned int sizes[],
 				   void *alloc_ctxs[])
 {
-	struct vsniff_v4l2_private_data *priv = vb2_get_drv_priv(q);
+	struct vsniff_private_data *priv = vb2_get_drv_priv(q);
 
 	if (*num_buffers < 1)
 		*num_buffers = 1;
@@ -199,25 +199,25 @@ static void vsniff_v4l2_buf_queue(struct vb2_buffer *vb)
 		return;
 	}
 
-	spin_lock_irqsave(&private->v4l2.spinlock, flags);
-	list_add_tail(&buf->head, &private->v4l2.queued_buffers);
-	spin_unlock_irqrestore(&private->v4l2.spinlock, flags);
+	spin_lock_irqsave(&private->spinlock, flags);
+	list_add_tail(&buf->head, &private->queued_buffers);
+	spin_unlock_irqrestore(&private->spinlock, flags);
 
 	if (vb2_is_streaming(vb->vb2_queue)) {
-		dma_async_issue_pending(private->v4l2.dma);
+		dma_async_issue_pending(private->dma);
 	}
 }
 
 static int vsniff_v4l2_start_streaming(struct vb2_queue *q, unsigned int count)
 {
-	struct vsniff_v4l2_private_data *priv = vb2_get_drv_priv(q);
+	struct vsniff_private_data *priv = vb2_get_drv_priv(q);
 	dma_async_issue_pending(priv->dma);
 	return 0;
 }
 
 static void vsniff_v4l2_stop_streaming(struct vb2_queue *q)
 {
-	struct vsniff_v4l2_private_data *priv = vb2_get_drv_priv(q);
+	struct vsniff_private_data *priv = vb2_get_drv_priv(q);
 	struct vsniff_v4l2_buffer *buf;
 	unsigned long flags;
 
@@ -265,7 +265,7 @@ static int vsniff_v4l2_streamon(struct file *file, void *priv_fh,
 	if (buffer_type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
 		return -EINVAL;
 
-	return vb2_streamon(&private->v4l2.queue, buffer_type);
+	return vb2_streamon(&private->queue, buffer_type);
 }
 
 static int vsniff_v4l2_streamoff(struct file *file, void *priv_fh,
@@ -415,42 +415,39 @@ static int vsniff_probe(struct platform_device *pdev)
 		return -EPROBE_DEFER;
 
 	/* Iinitalize v4l2 driver */
-	result = v4l2_device_register(&pdev->dev, &private->v4l2.dev);
+	result = v4l2_device_register(&pdev->dev, &private->dev);
 	if (result) {
 		printk(KERN_ERR "Failed to register v4l2 dev: %d\n", result);
 		return -result;
 	}
 
-	/* Give the same DMA pointer to v4l2 driver */
-	private->v4l2.dma = private->dma;
-
-	private->v4l2.alloc_ctx = vb2_dma_contig_init_ctx(&pdev->dev);
-	if (IS_ERR(private->v4l2.alloc_ctx)) {
-		result = PTR_ERR(private->v4l2.alloc_ctx);
+	private->alloc_ctx = vb2_dma_contig_init_ctx(&pdev->dev);
+	if (IS_ERR(private->alloc_ctx)) {
+		result = PTR_ERR(private->alloc_ctx);
 		printk(KERN_ERR "Failed to init ctx\n");
 		return -result;
 	}
 
-	vdev = &private->v4l2.vdev;
-	mutex_init(&private->v4l2.lock);
+	vdev = &private->vdev;
+	mutex_init(&private->lock);
 
 	snprintf(vdev->name, sizeof(vdev->name),
-		 "%s", private->v4l2.dev.name);
+		 "%s", private->dev.name);
 
-	vdev->v4l2_dev = &private->v4l2.dev;
+	vdev->v4l2_dev = &private->dev;
 	vdev->fops = &vsniff_v4l2_fops;
 	vdev->release = video_device_release_empty;
 	vdev->ctrl_handler = NULL;
-	vdev->lock = &private->v4l2.lock;
-	vdev->queue = &private->v4l2.queue;
-	vdev->queue->lock = &private->v4l2.lock;
+	vdev->lock = &private->lock;
+	vdev->queue = &private->queue;
+	vdev->queue->lock = &private->lock;
 
-	INIT_LIST_HEAD(&private->v4l2.queued_buffers);
+	INIT_LIST_HEAD(&private->queued_buffers);
 
 	vdev->queue->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	vdev->queue->io_modes = VB2_MMAP | VB2_USERPTR | VB2_READ;
-	vdev->queue->drv_priv = &private->v4l2;
-	vdev->queue->buf_struct_size = sizeof(struct vsniff_v4l2_private_data);
+	vdev->queue->drv_priv = private;
+	vdev->queue->buf_struct_size = sizeof(struct vsniff_private_data);
 	vdev->queue->ops = &vsniff_v4l2_qops;
 	vdev->queue->mem_ops = &vb2_dma_contig_memops;
 	vdev->queue->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
@@ -483,8 +480,8 @@ static int vsniff_remove(struct platform_device *pdev)
 		dma_release_channel(private->dma);
 
 	/* Unregister v4l2 dev */
-	video_unregister_device(&private->v4l2.vdev);
-	v4l2_device_unregister(&private->v4l2.dev);
+	video_unregister_device(&private->vdev);
+	v4l2_device_unregister(&private->dev);
 
 	return 0;
 }

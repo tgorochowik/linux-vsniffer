@@ -37,17 +37,6 @@ struct vsniff_ctrl_regs {
 	uint32_t res_y;
 };
 
-struct vsniff_v4l2_private_data {
-	struct vb2_alloc_ctx *alloc_ctx;
-	struct dma_chan *dma;
-	struct v4l2_device dev;
-	struct video_device vdev;
-	struct vb2_queue queue;
-	struct mutex lock;
-	struct list_head queued_buffers;
-	spinlock_t spinlock;
-};
-
 struct vsniff_private_data {
 	struct dma_chan *dma;
 	struct xilinx_dma_config dma_config;
@@ -57,7 +46,13 @@ struct vsniff_private_data {
 
 	struct vsniff_ctrl_regs __iomem *regs;
 
-	struct vsniff_v4l2_private_data v4l2;
+	struct vb2_alloc_ctx *alloc_ctx;
+	struct v4l2_device dev;
+	struct video_device vdev;
+	struct vb2_queue queue;
+	struct mutex lock;
+	struct list_head queued_buffers;
+	spinlock_t spinlock;
 };
 
 struct vsniff_v4l2_buffer {
