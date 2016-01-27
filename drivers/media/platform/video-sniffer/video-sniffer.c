@@ -67,6 +67,11 @@ static long vsniff_v4l2_ioctl(struct file *file,
 
 		copy_to_user((uint32_t*)arg, &buf, sizeof(buf));
 		break;
+	case VSNIFF_GETCLKCNT:
+		buf = private->regs->tmds_clk_cnt;
+
+		copy_to_user((uint32_t*)arg, &buf, sizeof(buf));
+		break;
 	default:
 		/* Fallback to generic v4l2 ioctl */
 		return video_ioctl2(file, cmd, arg);

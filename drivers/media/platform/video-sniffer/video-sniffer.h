@@ -30,11 +30,13 @@
 #define VSNIFF_SETMODE_RGB	_IO(VSNIFF_IOC_MAGIC, 0x40)
 #define VSNIFF_SETMODE_TMDS	_IO(VSNIFF_IOC_MAGIC, 0x41)
 #define VSNIFF_GETRES		_IO(VSNIFF_IOC_MAGIC, 0x42)
+#define VSNIFF_GETCLKCNT	_IO(VSNIFF_IOC_MAGIC, 0x43)
 
 struct vsniff_ctrl_regs {
 	uint32_t mode;
 	uint32_t res_x;
 	uint32_t res_y;
+	uint32_t tmds_clk_cnt;
 };
 
 struct vsniff_private_data {
